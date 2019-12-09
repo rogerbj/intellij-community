@@ -6,7 +6,6 @@ import com.intellij.ide.ui.UISettingsState;
 import com.intellij.mock.Mock;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.fileEditor.impl.EditorWindow;
-import com.intellij.openapi.fileEditor.impl.EditorWithProviderComposite;
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbServiceImpl;
@@ -164,6 +163,28 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
     assertEquals(2, myManager.getWindows().length);
   }
 
+  public void testOpenFileInTablessSplitter() {
+    VirtualFile file1 = getFile("/src/1.txt");
+    assertNotNull(file1);
+    file1.putUserData(EditorWindow.INITIAL_INDEX_KEY, null);
+    myManager.openFile(file1, false);
+    VirtualFile file2 = getFile("/src/2.txt");
+    file2.putUserData(EditorWindow.INITIAL_INDEX_KEY, null);
+    assertNotNull(file2);
+    myManager.openFile(file2, true);
+    EditorWindow primaryWindow = myManager.getCurrentWindow();//1.txt and selected 2.txt
+    assertNotNull(primaryWindow);
+    myManager.createSplitter(SwingConstants.VERTICAL, primaryWindow);
+    EditorWindow secondaryWindow = myManager.getNextWindow(primaryWindow);//2.txt only, selected and focused
+    assertNotNull(secondaryWindow);
+    UISettings.getInstance().setEditorTabPlacement(UISettings.TABS_NONE);
+    myManager.openFileWithProviders(file1, true, true);//Here we have to ignore 'searchForSplitter'
+    assertEquals(2, primaryWindow.getTabCount());
+    assertEquals(2, secondaryWindow.getTabCount());
+    assertOrderedEquals(primaryWindow.getFiles(), file1, file2);
+    assertOrderedEquals(secondaryWindow.getFiles(), file2, file1);
+  }
+
   public void testStoringCaretStateForFileWithFoldingsWithNoTabs() {
     UISettings.getInstance().setEditorTabPlacement(UISettings.TABS_NONE);
     VirtualFile file = getFile("/src/Test.java");
@@ -266,8 +287,7 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
                                        "  </component>\n";
 
   private void assertOpenFiles(String... fileNames) {
-    EditorWithProviderComposite[] files = myManager.getSplitters().getEditorsComposites();
-    List<String> names = ContainerUtil.map(files, composite -> composite.getFile().getName());
+    List<String> names = ContainerUtil.map(myManager.getSplitters().getEditorComposites(), composite -> composite.getFile().getName());
     assertEquals(Arrays.asList(fileNames), names);
   }
 

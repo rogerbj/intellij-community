@@ -305,7 +305,7 @@ public class BoundedWildcardInspection extends AbstractBaseJavaLocalInspectionTo
       PsiElement element = containingMethodCopy.findElementAt(anonClassOffsetInContainingMethod);
       PsiClass containingClassCopy = PsiTreeUtil.getParentOfType(element, containingClass.getClass(), false);
       PsiMethod newMethodCopy = containingClassCopy.getMethods()[ArrayUtil.indexOf(containingClass.getMethods(), candidate.method)];
-      PsiTypeElement paramTE = newMethodCopy.getParameterList().getParameters()[candidate.methodParameterIndex].getTypeElement();
+      PsiTypeElement paramTE = Objects.requireNonNull(newMethodCopy.getParameterList().getParameter(candidate.methodParameterIndex)).getTypeElement();
       ReplaceWithQuestionTFix.replaceType(project, paramTE, newParameterType);
 
       findSuperMethodCallsInside(newMethodCopy, candidate.superMethods, superMethodsCalls);
@@ -343,7 +343,7 @@ public class BoundedWildcardInspection extends AbstractBaseJavaLocalInspectionTo
                                           processor.execute(methodCopy, state));
 
     if (methodParameterIndex != -1) {
-      PsiTypeElement paramTE = methodCopy.getParameterList().getParameters()[methodParameterIndex].getTypeElement();
+      PsiTypeElement paramTE = Objects.requireNonNull(methodCopy.getParameterList().getParameter(methodParameterIndex)).getTypeElement();
       ReplaceWithQuestionTFix.replaceType(project, paramTE, newParameterExtends);
     }
 
@@ -397,13 +397,15 @@ public class BoundedWildcardInspection extends AbstractBaseJavaLocalInspectionTo
     }
   }
 
-
   private static boolean errorChecks(@NotNull PsiElement method, @NotNull List<PsiElement> elementsToIgnore) {
-    HighlightVisitor visitor = ContainerUtil.find(HighlightVisitor.EP_HIGHLIGHT_VISITOR.getExtensions(method.getProject()), h -> h instanceof HighlightVisitorImpl).clone();
+    HighlightVisitor visitorImpl = ContainerUtil.find(HighlightVisitor.EP_HIGHLIGHT_VISITOR.getExtensionList(method.getProject()),
+                                                      h -> h instanceof HighlightVisitorImpl);
+    if (visitorImpl == null) return true;
+    HighlightVisitor visitor = visitorImpl.clone();
     HighlightInfoHolder holder = new HighlightInfoHolder(method.getContainingFile());
-    visitor.analyze(method.getContainingFile(), false, holder, ()-> method.accept(new PsiRecursiveElementWalkingVisitor() {
+    visitor.analyze(method.getContainingFile(), false, holder, () -> method.accept(new PsiRecursiveElementWalkingVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         if (elementsToIgnore.contains(element)) return; // ignore sub-elements too
         visitor.visit(element);
         //System.out.println("element = " + element+"; holder: "+holder.hasErrorResults());

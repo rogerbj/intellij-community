@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide
 
+import com.intellij.openapi.application.AccessToken
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.ComponentManager
@@ -12,7 +13,7 @@ abstract class SaveAndSyncHandler {
   companion object {
     @JvmStatic
     fun getInstance(): SaveAndSyncHandler {
-      return ApplicationManager.getApplication().getComponent(SaveAndSyncHandler::class.java)
+      return ApplicationManager.getApplication().getService(SaveAndSyncHandler::class.java)
     }
   }
 
@@ -52,6 +53,8 @@ abstract class SaveAndSyncHandler {
   abstract fun scheduleRefresh()
 
   abstract fun refreshOpenFiles()
+
+  abstract fun disableAutoSave(): AccessToken
 
   abstract fun blockSaveOnFrameDeactivation()
 

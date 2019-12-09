@@ -28,11 +28,13 @@
 
     <extensionPoint name="pluginDescriptor" beanClass="org.jetbrains.idea.maven.plugins.api.MavenPluginDescriptor"/>
 
-    <extensionPoint name="repositoryProvider" interface="org.jetbrains.idea.maven.indices.MavenRepositoryProvider"/>
+    <extensionPoint name="repositoryProvider" interface="org.jetbrains.idea.maven.indices.MavenRepositoryProvider"
+                    dynamic="true"/>
     <extensionPoint name="executionEnvironmentProvider"
                     interface="org.jetbrains.idea.maven.execution.build.MavenExecutionEnvironmentProvider"/>
     <extensionPoint name="artifactBuilder" interface="org.jetbrains.idea.maven.execution.build.MavenArtifactBuilder"/>
-    <extensionPoint name="dependencyCompletionProviderFactory" interface="org.jetbrains.idea.maven.onlinecompletion.DependencyCompletionProviderFactory"/>
+    <extensionPoint name="dependencyCompletionProviderFactory" interface="org.jetbrains.idea.maven.onlinecompletion.DependencyCompletionProviderFactory"
+                    dynamic="true"/>
   </extensionPoints>
 
   <depends>com.intellij.properties</depends>
@@ -51,7 +53,7 @@
     <projectImportProvider implementation="org.jetbrains.idea.maven.wizards.MavenProjectImportProvider"/>
     <projectOpenProcessor implementation="org.jetbrains.idea.maven.wizards.MavenProjectOpenProcessor"/>
     <projectImportBuilder implementation="org.jetbrains.idea.maven.wizards.MavenProjectBuilder"/>
-    <moduleBuilder builderClass="org.jetbrains.idea.maven.wizards.MavenModuleBuilder"/>
+    <moduleBuilder builderClass="org.jetbrains.idea.maven.wizards.InternalMavenModuleBuilder"/>
     <frameworkSupport implementation="org.jetbrains.idea.maven.wizards.MavenFrameworkSupportProvider"/>
     <moduleExtension implementation="org.jetbrains.idea.maven.importing.MavenSourceFoldersModuleExtension"/>
     <moduleService serviceImplementation="org.jetbrains.idea.maven.importing.MavenPomPathModuleService"/>
@@ -77,6 +79,7 @@
     </projectConfigurable>
 
     <stepsBeforeRunProvider implementation="org.jetbrains.idea.maven.tasks.MavenBeforeRunTasksProvider"/>
+    <externalIconProvider key="MAVEN" implementationClass="org.jetbrains.idea.maven.ui.MavenIconProvider"/>
     <externalSystemKeymapProvider implementation="org.jetbrains.idea.maven.tasks.MavenKeymapExtension"/>
     <externalSystemWorkspaceContributor implementation="org.jetbrains.idea.maven.importing.MavenWorkspaceContributor"/>
     <externalProjectWatcherContributor implementation="org.jetbrains.idea.maven.project.MavenProjectsManager$ExternalWatcherContributor"/>
@@ -215,7 +218,6 @@
     <projectService serviceImplementation="org.jetbrains.idea.maven.execution.MavenRunner"/>
     <projectService serviceImplementation="org.jetbrains.idea.maven.project.MavenProjectSettings"/>
 
-    <postStartupActivity implementation="org.jetbrains.idea.maven.utils.MavenRehighlighter$MavenRehighlighterPostStartupActivity"/>
     <projectService serviceImplementation="org.jetbrains.idea.maven.utils.MavenRehighlighter"/>
     <projectModelModifier implementation="org.jetbrains.idea.maven.importing.MavenProjectModelModifier"/>
 
@@ -255,6 +257,9 @@
     <registryKey key="packagesearch.timeout.max" defaultValue="86400000"
                  description="maximum backoff timeout when  package search service request failed (milliseconds)" restartRequired="true"/>
 
+    <intentionAction>
+      <className>org.jetbrains.idea.maven.dom.converters.MavenArtifactCoordinatesConverter$MyUpdateIndicesIntention</className>
+    </intentionAction>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.idea.maven">
@@ -295,6 +300,7 @@
       <param name="filters/filter" refProvider="org.jetbrains.idea.maven.plugins.api.common.MavenCommonParamReferenceProviders$FilePath"/>
       <param name="applicationXml" refProvider="org.jetbrains.idea.maven.plugins.api.common.MavenCommonParamReferenceProviders$FilePath"/>
       <param name="encoding" refProvider="org.jetbrains.idea.maven.plugins.api.common.MavenCommonParamReferenceProviders$Encoding"/>
+      <param name="outputFileNameMapping" disableReferences="true"/>
     </pluginDescriptor>
 
     <pluginDescriptor mavenId="org.apache.maven.plugins:maven-ejb-plugin">
@@ -416,9 +422,6 @@
     <component>
       <implementation-class>org.jetbrains.idea.maven.tasks.MavenShortcutsManager</implementation-class>
     </component>
-    <component>
-      <implementation-class>org.jetbrains.idea.maven.utils.MavenImportNotifier</implementation-class>
-    </component>
   </project-components>
 
   <actions>
@@ -537,7 +540,7 @@
     <action id="Maven.ToggleOffline"
             class="org.jetbrains.idea.maven.project.actions.ToggleOfflineAction" text="Toggle Offline Mode"
             description="Toggle offline mode for Maven builds"
-            icon="MavenIcons.OfflineMode">
+            icon="AllIcons.Actions.OfflineMode">
     </action>
 
     <action id="Maven.ToggleSkipTests"
@@ -673,7 +676,7 @@
     </group>
 
     <group id="Maven.GlobalProjectMenu" class="org.jetbrains.idea.maven.utils.actions.MavenActionGroup" popup="true" text="Maven"
-           icon="MavenIcons.MavenLogo">
+           icon="OpenapiIcons.RepositoryLibraryLogo">
       <add-to-group group-id="EditorPopupMenu" anchor="last"/>
       <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
       <reference ref="Maven.BaseProjectMenu"/>

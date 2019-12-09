@@ -103,6 +103,7 @@ class UISettingsState : BaseState() {
   @get:OptionTag("SHOW_ICONS_IN_QUICK_NAVIGATION")
   var showIconInQuickNavigation by property(true)
   var showTreeIndentGuides by property(false)
+  var compactTreeIndents by property(false)
 
   @get:OptionTag("SORT_TABS_ALPHABETICALLY")
   var sortTabsAlphabetically by property(false)
@@ -172,6 +173,23 @@ class UISettingsState : BaseState() {
   var smoothScrolling by property(true)
   @get:OptionTag("NAVIGATE_TO_PREVIEW")
   var navigateToPreview by property(false)
+
+  var animatedScrolling by property(true)
+  var animatedScrollingDuration by property(
+    when {
+      SystemInfo.isWindows -> 200
+      SystemInfo.isMac -> 100
+      else -> 150
+    }
+  )
+  var animatedScrollingUnitIncrement by property(-1)
+  var animatedScrollingCurvePoints by property(
+    when {
+      SystemInfo.isWindows -> 1684366536
+      SystemInfo.isMac -> 13107400
+      else -> 729434056
+    }
+  )
 
   @get:OptionTag("SORT_LOOKUP_ELEMENTS_LEXICOGRAPHICALLY")
   var sortLookupElementsLexicographically by property(false)

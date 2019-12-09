@@ -2,6 +2,7 @@
 package com.intellij.ide.actions.searcheverywhere;
 
 import com.intellij.ide.actions.GotoActionBase;
+import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
@@ -16,6 +17,7 @@ import com.intellij.openapi.wm.WindowManager;
 import com.intellij.ui.ScreenUtil;
 import com.intellij.ui.SearchTextField;
 import com.intellij.ui.awt.RelativePoint;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -29,6 +31,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collector;
 
 import static com.intellij.ide.actions.SearchEverywhereAction.SEARCH_EVERYWHERE_POPUP;
+import static com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector.DIALOG_CLOSED;
 
 public class SearchEverywhereManagerImpl implements SearchEverywhereManager {
 
@@ -53,7 +56,7 @@ public class SearchEverywhereManagerImpl implements SearchEverywhereManager {
   @Override
   public void show(@NotNull String contributorID, @Nullable String searchText, @NotNull AnActionEvent initEvent) {
     if (isShown()) {
-      throw new IllegalStateException("Method should cannot be called whe popup is shown");
+      throw new IllegalStateException("Method should cannot be called when popup is shown");
     }
 
     Project project = initEvent.getProject();
@@ -75,7 +78,7 @@ public class SearchEverywhereManagerImpl implements SearchEverywhereManager {
 
     myHistoryIterator = myHistoryList.getIterator(contributorID);
     //history could be suppressed by user for some reasons (creating promo video, conference demo etc.)
-    boolean suppressHistory = "true".equals(System.getProperty("idea.searchEverywhere.noHistory", "false"));
+    boolean suppressHistory = SystemProperties.getBooleanProperty("idea.searchEverywhere.noHistory", false);
     //or could be suppressed just for All tab in registry
     suppressHistory = suppressHistory ||
                       (ALL_CONTRIBUTORS_GROUP_ID.equals(contributorID) &&
@@ -98,6 +101,7 @@ public class SearchEverywhereManagerImpl implements SearchEverywhereManager {
       .setCancelKeyEnabled(false)
       .setCancelCallback(() -> {
         saveSearchText();
+        SearchEverywhereUsageTriggerCollector.trigger(myProject, DIALOG_CLOSED);
         return true;
       })
       .addUserData("SIMPLE_WINDOW")

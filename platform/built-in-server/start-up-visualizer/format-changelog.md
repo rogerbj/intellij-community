@@ -1,3 +1,17 @@
+## 15
+
+* add `project frame assigning` (`APP_INIT`).
+* add `placing calling projectOpened on event queue` (main category).
+* more correct measurement of project start-up activities (logic how do we execute start-up activities was fully reworked).
+
+## 14
+
+* add `project` name. Encoded using Argon to ensure that project name is not exposed.
+
+## 13
+
+* add `buildDate`.
+
 ## 12
 
 * service/component events are reported in a google trace event format.

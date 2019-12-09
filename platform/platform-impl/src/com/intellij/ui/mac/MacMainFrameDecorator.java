@@ -7,7 +7,6 @@ import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.BuildNumber;
@@ -100,16 +99,31 @@ public final class MacMainFrameDecorator extends IdeFrameDecorator {
   private static boolean HAS_FULLSCREEN_UTILITIES;
 
   private static Method requestToggleFullScreenMethod;
+  private static Method enterFullScreenMethod;
+  private static Method leaveFullScreenMethod;
 
   static {
     try {
       Class.forName("com.apple.eawt.FullScreenUtilities");
       //noinspection JavaReflectionMemberAccess
-      requestToggleFullScreenMethod = Application.class.getMethod("requestToggleFullScreen", Window.class);
+      enterFullScreenMethod = Application.class.getMethod("requestEnterFullScreen", Window.class);
+      leaveFullScreenMethod = Application.class.getMethod("requestLeaveFullScreen", Window.class);
       HAS_FULLSCREEN_UTILITIES = true;
     }
     catch (Exception e) {
       HAS_FULLSCREEN_UTILITIES = false;
+    }
+    // temporary solution for the old Runtime
+    if (!HAS_FULLSCREEN_UTILITIES) {
+      try {
+        Class.forName("com.apple.eawt.FullScreenUtilities");
+        //noinspection JavaReflectionMemberAccess
+        requestToggleFullScreenMethod = Application.class.getMethod("requestToggleFullScreen", Window.class);
+        HAS_FULLSCREEN_UTILITIES = true;
+      }
+      catch (Exception e) {
+        HAS_FULLSCREEN_UTILITIES = false;
+      }
     }
   }
 
@@ -171,7 +185,7 @@ public final class MacMainFrameDecorator extends IdeFrameDecorator {
     //noinspection Convert2Lambda
     ApplicationManager.getApplication().getMessageBus().connect(parentDisposable).subscribe(UISettingsListener.TOPIC, new UISettingsListener() {
       @Override
-      public void uiSettingsChanged(final UISettings uiSettings) {
+      public void uiSettingsChanged(UISettings uiSettings) {
         if (CURRENT_GETTER != null) {
           //noinspection AssignmentToStaticFieldFromInstanceMethod
           SHOWN = CURRENT_GETTER.get();
@@ -237,7 +251,9 @@ public final class MacMainFrameDecorator extends IdeFrameDecorator {
             JRootPane rootPane = frame.getRootPane();
             if (rootPane instanceof IdeRootPane && Registry.is("ide.mac.transparentTitleBarAppearance")) {
               IdeRootPane ideRootPane = (IdeRootPane)rootPane;
-              UIUtil.setCustomTitleBar(frame, ideRootPane, runnable -> Disposer.register(ideRootPane, () -> runnable.run()));
+              UIUtil.setCustomTitleBar(frame, ideRootPane, runnable -> {
+                Disposer.register(parentDisposable, () -> runnable.run());
+              });
             }
             exitFullscreen();
             ActiveWindowsWatcher.addActiveWindow(frame);
@@ -292,8 +308,7 @@ public final class MacMainFrameDecorator extends IdeFrameDecorator {
       Application.getApplication().setOpenURIHandler(new OpenURIHandler() {
         @Override
         public void openURI(AppEvent.OpenURIEvent event) {
-          TransactionGuard.submitTransaction(ApplicationManager.getApplication(), () ->
-            ourProtocolHandler.openLink(event.getURI()));
+          ourProtocolHandler.openLink(event.getURI());
         }
       });
     }
@@ -329,7 +344,13 @@ public final class MacMainFrameDecorator extends IdeFrameDecorator {
       }
     });
 
-    myFullscreenQueue.runOrEnqueue(() -> toggleFullScreenNow());
+    // temporary solution for the old Runtime
+    if (enterFullScreenMethod == null || leaveFullScreenMethod == null) {
+      myFullscreenQueue.runOrEnqueue(this::toggleFullScreenNow);
+    } else {
+      myFullscreenQueue.runOrEnqueue(state ? this::enterFullScreenNow : this::leaveFullScreenNow);
+    }
+
     return promise;
   }
 
@@ -338,7 +359,25 @@ public final class MacMainFrameDecorator extends IdeFrameDecorator {
       requestToggleFullScreenMethod.invoke(Application.getApplication(), myFrame);
     }
     catch (Exception e) {
-      LOG.error(e);
+      LOG.warn(e);
+    }
+  }
+
+  private void enterFullScreenNow() {
+    try {
+      enterFullScreenMethod.invoke(Application.getApplication(), myFrame);
+    }
+    catch (Exception e) {
+      LOG.warn(e);
+    }
+  }
+
+  private void leaveFullScreenNow() {
+    try {
+      leaveFullScreenMethod.invoke(Application.getApplication(), myFrame);
+    }
+    catch (Exception e) {
+      LOG.warn(e);
     }
   }
 }

@@ -48,7 +48,7 @@ import java.util.concurrent.ConcurrentMap;
  * @author ik
  */
 public class PsiClassImplUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.PsiClassImplUtil");
+  private static final Logger LOG = Logger.getInstance(PsiClassImplUtil.class);
   private static final Key<ParameterizedCachedValue<Map<GlobalSearchScope, MembersMap>, PsiClass>> MAP_IN_CLASS_KEY = Key.create("MAP_KEY");
   private static final String VALUES_METHOD = "values";
   private static final String VALUE_OF_METHOD = "valueOf";
@@ -369,7 +369,7 @@ public class PsiClassImplUtil {
             PsiUtilCore.ensureValid(element);
             allMembers.add((PsiMember)element);
             String currentName = ((PsiMember)element).getName();
-            List<PsiMember> listByName = map.computeIfAbsent(currentName, __ -> ContainerUtil.newSmartList());
+            List<PsiMember> listByName = map.computeIfAbsent(currentName, __ -> new SmartList<>());
             listByName.add((PsiMember)element);
           }
         }
@@ -1171,7 +1171,6 @@ public class PsiClassImplUtil {
   public static boolean isFieldEquivalentTo(@NotNull PsiField field, PsiElement another) {
     if (!(another instanceof PsiField)) return false;
     String name1 = field.getName();
-    if (name1 == null) return false;
     if (!another.isValid()) return false;
 
     String name2 = ((PsiField)another).getName();

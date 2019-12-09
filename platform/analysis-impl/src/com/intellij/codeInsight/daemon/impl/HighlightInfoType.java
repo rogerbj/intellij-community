@@ -15,16 +15,13 @@ import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Set;
 
 public interface HighlightInfoType {
@@ -65,35 +62,32 @@ public interface HighlightInfoType {
    * The field will be removed in version 17.
    */
   @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2017")
   HighlightInfoType LOCAL_VARIABLE = new HighlightInfoTypeImpl(SYMBOL_TYPE_SEVERITY, CodeInsightColors.LOCAL_VARIABLE_ATTRIBUTES);
   /**
    * @deprecated For Java use JavaHighlightInfoTypes.METHOD_CALL or create a language-specific HighlightInfoType.
    * The field will be removed in version 17.
    */
   @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2017")
   HighlightInfoType METHOD_CALL = new HighlightInfoTypeImpl(SYMBOL_TYPE_SEVERITY, CodeInsightColors.METHOD_CALL_ATTRIBUTES);
   /**
    * @deprecated For Java use JavaHighlightInfoTypes.STATIC_METHOD or create a language-specific HighlightInfoType.
    * The field will be removed in version 17.
    */
   @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2017")
   HighlightInfoType STATIC_METHOD = new HighlightInfoTypeImpl(SYMBOL_TYPE_SEVERITY, CodeInsightColors.STATIC_METHOD_ATTRIBUTES);
   /**
    * @deprecated For Java use JavaHighlightInfoTypes.CLASS_NAME or create a language-specific HighlightInfoType.
    * The field will be removed in version 17.
    */
   @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2017")
   HighlightInfoType CLASS_NAME = new HighlightInfoTypeImpl(SYMBOL_TYPE_SEVERITY, CodeInsightColors.CLASS_NAME_ATTRIBUTES);
 
   HighlightInfoType TODO = new HighlightInfoTypeImpl(HighlightSeverity.INFORMATION, CodeInsightColors.TODO_DEFAULT_ATTRIBUTES);  // these are default attributes, can be configured differently for specific patterns
   HighlightInfoType UNHANDLED_EXCEPTION = new HighlightInfoTypeImpl(HighlightSeverity.ERROR, CodeInsightColors.ERRORS_ATTRIBUTES);
 
+  HighlightSeverity INJECTED_FRAGMENT_SYNTAX_SEVERITY = new HighlightSeverity("INJECTED_FRAGMENT_SYNTAX", SYMBOL_TYPE_SEVERITY.myVal - 2);
   HighlightSeverity INJECTED_FRAGMENT_SEVERITY = new HighlightSeverity("INJECTED_FRAGMENT", SYMBOL_TYPE_SEVERITY.myVal - 1);
-  HighlightInfoType INJECTED_LANGUAGE_FRAGMENT = new HighlightInfoTypeImpl(SYMBOL_TYPE_SEVERITY, CodeInsightColors.INFORMATION_ATTRIBUTES);
+  HighlightInfoType INJECTED_LANGUAGE_FRAGMENT = new HighlightInfoTypeImpl(INJECTED_FRAGMENT_SYNTAX_SEVERITY, CodeInsightColors.INFORMATION_ATTRIBUTES);
   HighlightInfoType INJECTED_LANGUAGE_BACKGROUND = new HighlightInfoTypeImpl(INJECTED_FRAGMENT_SEVERITY, CodeInsightColors.INFORMATION_ATTRIBUTES);
 
   HighlightSeverity ELEMENT_UNDER_CARET_SEVERITY = new HighlightSeverity("ELEMENT_UNDER_CARET", HighlightSeverity.ERROR.myVal + 1);
@@ -105,13 +99,13 @@ public interface HighlightInfoType {
   /**
    * @see com.intellij.openapi.editor.impl.RangeHighlighterImpl#VISIBLE_IF_FOLDED
    */
-  Set<HighlightInfoType> VISIBLE_IF_FOLDED = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+  Set<HighlightInfoType> VISIBLE_IF_FOLDED = ContainerUtil.immutableSet(
     ELEMENT_UNDER_CARET_READ, 
     ELEMENT_UNDER_CARET_WRITE,
     WARNING,
     ERROR,
     WRONG_REF
-  )));
+  );
 
   @NotNull
   HighlightSeverity getSeverity(@Nullable PsiElement psiElement);
@@ -154,7 +148,6 @@ public interface HighlightInfoType {
     }
 
     @Override
-    @SuppressWarnings("HardCodedStringLiteral")
     public String toString() {
       return "HighlightInfoTypeImpl[severity=" + mySeverity + ", key=" + myAttributesKey + "]";
     }
@@ -196,7 +189,8 @@ public interface HighlightInfoType {
   }
 
   class HighlightInfoTypeSeverityByKey implements HighlightInfoType {
-    static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.HighlightInfoType.HighlightInfoTypeSeverityByKey");
+    @SuppressWarnings("unused")
+    static final Logger LOG = Logger.getInstance(HighlightInfoTypeSeverityByKey.class);
 
     private final TextAttributesKey myAttributesKey;
     private final HighlightDisplayKey myToolKey;
@@ -222,7 +216,6 @@ public interface HighlightInfoType {
     }
 
     @Override
-    @SuppressWarnings("HardCodedStringLiteral")
     public String toString() {
       return "HighlightInfoTypeSeverityByKey[severity=" + myToolKey + ", key=" + myAttributesKey + "]";
     }

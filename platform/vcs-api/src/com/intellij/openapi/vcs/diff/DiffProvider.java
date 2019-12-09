@@ -16,11 +16,16 @@
 package com.intellij.openapi.vcs.diff;
 
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsProviderMarker;
+import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Collection;
 
 public interface DiffProvider extends VcsProviderMarker {
 
@@ -44,5 +49,21 @@ public interface DiffProvider extends VcsProviderMarker {
     VcsRevisionNumber revisionNumber = getCurrentRevision(file);
     if (revisionNumber == null) return null;
     return createFileContent(revisionNumber, file);
+  }
+
+  /**
+   * Preload base revisions of all the given changes, if the DiffProvider supports it.
+   */
+  default void preloadBaseRevisions(@NotNull VirtualFile root, @NotNull Collection<Change> changes) {
+  }
+
+  default boolean canCompareWithWorkingDir() {
+    return false;
+  }
+
+  @Nullable
+  default Collection<Change> compareWithWorkingDir(@NotNull VirtualFile fileOrDir,
+                                                   @NotNull VcsRevisionNumber revNum) throws VcsException {
+    return null;
   }
 }

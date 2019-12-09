@@ -24,8 +24,7 @@ public class MavenDependencyReferenceProvider extends PsiReferenceProvider imple
   @NotNull
   @Override
   public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
-    ElementManipulator<PsiElement> manipulator = ElementManipulators.getManipulator(element);
-    TextRange range = manipulator.getRangeInElement(element);
+    TextRange range = ElementManipulators.getValueTextRange(element);
 
     String text = range.substring(element.getText());
 
@@ -49,7 +48,7 @@ public class MavenDependencyReferenceProvider extends PsiReferenceProvider imple
       };
     }
 
-    int lastDelim = text.indexOf(secondDelim + 1);
+    int lastDelim = text.indexOf(':',secondDelim + 1);
     if (lastDelim == -1) {
       lastDelim = text.length();
     }

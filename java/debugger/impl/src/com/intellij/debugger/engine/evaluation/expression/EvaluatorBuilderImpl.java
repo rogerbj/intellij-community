@@ -35,6 +35,7 @@ import com.intellij.refactoring.extractMethodObject.ExtractLightMethodObjectHand
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.Value;
 import org.jetbrains.annotations.Contract;
@@ -73,7 +74,7 @@ public class EvaluatorBuilderImpl implements EvaluatorBuilder {
   }
 
   private static class Builder extends JavaElementVisitor {
-    private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl");
+    private static final Logger LOG = Logger.getInstance(EvaluatorBuilderImpl.class);
     private Evaluator myResult = null;
     private PsiClass myContextPsiClass;
     private CodeFragmentEvaluator myCurrentFragmentEvaluator;
@@ -111,7 +112,7 @@ public class EvaluatorBuilderImpl implements EvaluatorBuilder {
     }
 
     @Override
-    public void visitErrorElement(PsiErrorElement element) {
+    public void visitErrorElement(@NotNull PsiErrorElement element) {
       throwExpressionInvalid(element);
     }
 
@@ -400,7 +401,7 @@ public class EvaluatorBuilderImpl implements EvaluatorBuilder {
 
     @Override
     public void visitSwitchLabelStatement(PsiSwitchLabelStatement statement) {
-      List<Evaluator> evaluators = ContainerUtil.newSmartList();
+      List<Evaluator> evaluators = new SmartList<>();
       PsiExpressionList caseValues = statement.getCaseValues();
       if (caseValues != null) {
         for (PsiExpression expression : caseValues.getExpressions()) {
@@ -1349,13 +1350,7 @@ public class EvaluatorBuilderImpl implements EvaluatorBuilder {
     private Evaluator buildFromJavaCode(String code, String imports, @NotNull PsiElement context) {
       TextWithImportsImpl text = new TextWithImportsImpl(CodeFragmentKind.CODE_BLOCK, code, imports, StdFileTypes.JAVA);
       JavaCodeFragment codeFragment = DefaultCodeFragmentFactory.getInstance().createCodeFragment(text, context, context.getProject());
-      try {
-        ExpressionEvaluator evaluator = new Builder(myPosition).buildElement(codeFragment);
-        return evaluationContext -> evaluator.evaluate(evaluationContext);
-      }
-      catch (EvaluateException e) {
-        throw new EvaluateRuntimeException(e);
-      }
+      return accept(codeFragment);
     }
 
     @Override

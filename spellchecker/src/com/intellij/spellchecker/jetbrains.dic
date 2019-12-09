@@ -58,6 +58,7 @@ bfile
 bigfile
 bigint
 binlog
+bintray
 bitcoin
 blit
 blog
@@ -227,6 +228,7 @@ facelets
 fallthrough
 fastcall
 favicon
+fdatasync
 filename
 fileset
 filesets
@@ -245,6 +247,7 @@ freelists
 freemarker
 freepools
 frontend
+fsync
 ftlvariable
 fulltext
 func
@@ -295,6 +298,7 @@ haxe
 hazelcast
 hdiv
 helvetica
+helidon
 holdability
 hicpp
 hostname
@@ -638,6 +642,7 @@ proxool
 pseudorandom
 ptrdiff
 pycharm
+quarkus
 queryable
 radiobutton
 reactivestreams

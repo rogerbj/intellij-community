@@ -29,7 +29,7 @@ import java.util.*;
  *
  */
 public class DefaultActionGroup extends ActionGroup {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.actionSystem.DefaultActionGroup");
+  private static final Logger LOG = Logger.getInstance(DefaultActionGroup.class);
   private static final String CANT_ADD_ITSELF = "Cannot add a group to itself: ";
   private static final String CANT_ADD_ACTION_TWICE = "Cannot add an action twice: ";
   /**
@@ -143,6 +143,7 @@ public class DefaultActionGroup extends ActionGroup {
 
     // check that action isn't already registered
     if (!(action instanceof Separator) && containsAction(action)) {
+      LOG.error(CANT_ADD_ACTION_TWICE + action);
       remove(action, actionManager.getId(action));
     }
 
@@ -154,12 +155,10 @@ public class DefaultActionGroup extends ActionGroup {
     else if (constraint.myAnchor == Anchor.LAST) {
       mySortedChildren.add(action);
     }
-    else if (addToSortedList(action, constraint, actionManager)) {
-      actionAdded(action, actionManager);
-    }
     else {
       myPairs.add(Pair.create(action, constraint));
     }
+    addAllToSortedList(actionManager);
 
     return new ActionInGroup(this, action);
   }
@@ -170,14 +169,6 @@ public class DefaultActionGroup extends ActionGroup {
       if (action.equals(pair.first)) return true;
     }
     return false;
-  }
-
-  private void actionAdded(@NotNull AnAction addedAction, @NotNull ActionManager actionManager) {
-    String addedActionId = addedAction instanceof ActionStub ? ((ActionStub)addedAction).getId() : actionManager.getId(addedAction);
-    if (addedActionId == null) {
-      return;
-    }
-    addAllToSortedList(actionManager);
   }
 
   private void addAllToSortedList(@NotNull ActionManager actionManager) {
@@ -311,9 +302,8 @@ public class DefaultActionGroup extends ActionGroup {
    */
   @Override
   @NotNull
-  public synchronized final AnAction[] getChildren(@Nullable AnActionEvent e, @NotNull ActionManager actionManager) {
+  public final AnAction[] getChildren(@Nullable AnActionEvent e, @NotNull ActionManager actionManager) {
     boolean hasNulls = false;
-    addAllToSortedList(actionManager);
     // Mix sorted actions and pairs
     int sortedSize = mySortedChildren.size();
     AnAction[] children = new AnAction[sortedSize + myPairs.size()];

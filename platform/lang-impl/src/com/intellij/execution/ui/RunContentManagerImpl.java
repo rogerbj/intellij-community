@@ -208,13 +208,6 @@ public final class RunContentManagerImpl implements RunContentManager, Disposabl
 
   @Override
   @Nullable
-  public RunContentDescriptor getSelectedContent(final Executor executor) {
-    final Content selectedContent = getContentManagerForRunner(executor, null).getSelectedContent();
-    return selectedContent != null ? getRunContentDescriptorByContent(selectedContent) : null;
-  }
-
-  @Override
-  @Nullable
   public RunContentDescriptor getSelectedContent() {
     for (String activeWindow : myToolwindowIdZBuffer) {
       final ContentManager contentManager = myToolwindowIdToContentManagerMap.get(activeWindow);
@@ -680,29 +673,19 @@ public final class RunContentManagerImpl implements RunContentManager, Disposabl
     }
 
     @Override
-    protected boolean closeQuery(@NotNull Content content, boolean modal) {
+    protected boolean closeQuery(@NotNull Content content, boolean projectClosing) {
       final RunContentDescriptor descriptor = getRunContentDescriptorByContent(content);
       if (descriptor == null) {
         return true;
       }
 
       final ProcessHandler processHandler = descriptor.getProcessHandler();
-      if (processHandler == null || processHandler.isProcessTerminated() || processHandler.isProcessTerminating()) {
+      if (processHandler == null || processHandler.isProcessTerminated()) {
         return true;
       }
       final String sessionName = descriptor.getDisplayName();
-      final WaitForProcessTask task = new WaitForProcessTask(processHandler, sessionName, modal, myProject) {
-        final boolean killable =
-          !modal && (processHandler instanceof KillableProcess) && ((KillableProcess)processHandler).canKillProcess();
-
-        {
-          if (killable) {
-            String cancelText = ExecutionBundle.message("terminating.process.progress.kill");
-            setCancelText(cancelText);
-            setCancelTooltipText(cancelText);
-          }
-        }
-
+      boolean killable = processHandler instanceof KillableProcess && ((KillableProcess)processHandler).canKillProcess();
+      WaitForProcessTask task = new WaitForProcessTask(processHandler, sessionName, projectClosing, myProject) {
         @Override
         public void onCancel() {
           if (killable && !processHandler.isProcessTerminated()) {
@@ -710,6 +693,11 @@ public final class RunContentManagerImpl implements RunContentManager, Disposabl
           }
         }
       };
+      if (killable) {
+        String cancelText = ExecutionBundle.message("terminating.process.progress.kill");
+        task.setCancelText(cancelText);
+        task.setCancelTooltipText(cancelText);
+      }
       return askUserAndWait(processHandler, sessionName, task);
     }
   }

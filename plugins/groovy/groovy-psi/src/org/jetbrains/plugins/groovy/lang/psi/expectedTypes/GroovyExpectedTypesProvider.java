@@ -24,6 +24,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgument
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrNamedArgument;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrAssertStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrReturnStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrThrowStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseLabel;
@@ -43,10 +44,14 @@ import org.jetbrains.plugins.groovy.lang.psi.util.GroovyPropertyUtils;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtilKt;
 import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
+import org.jetbrains.plugins.groovy.lang.resolve.api.GroovyMethodCallReference;
+import org.jetbrains.plugins.groovy.lang.resolve.api.JustTypeArgument;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+
+import static org.jetbrains.plugins.groovy.lang.resolve.impl.CallReferenceImplKt.resolveWithArguments;
 
 /**
  * @author ven
@@ -170,6 +175,22 @@ public class GroovyExpectedTypesProvider {
       final GrStatement[] statements = block.getStatements();
       if (statements.length > 0 && myExpression.equals(statements[statements.length - 1])) {
         checkExitPoint();
+      }
+    }
+
+    @Override
+    public void visitCastExpression(@NotNull GrTypeCastExpression typeCastExpression) {
+      myResult = createSimpleSubTypeResult(TypesUtil.getJavaLangObject(typeCastExpression));
+    }
+
+    @Override
+    public void visitAssertStatement(@NotNull GrAssertStatement assertStatement) {
+      if (myExpression.equals(assertStatement.getAssertion())) {
+        myResult = createSimpleSubTypeResult(PsiType.BOOLEAN);
+      }
+
+      if (myExpression.equals(assertStatement.getErrorMessage())) {
+        myResult = createSimpleSubTypeResult(TypesUtil.createType(CommonClassNames.JAVA_LANG_STRING, assertStatement));
       }
     }
 
@@ -434,11 +455,8 @@ public class GroovyExpectedTypesProvider {
         @Override
         public boolean satisfied(PsiType type, @NotNull PsiElement context) {
           final PsiType boxed = TypesUtil.boxPrimitiveType(type, context.getManager(), context.getResolveScope());
-          final IElementType opToken = expression.getOperationTokenType();
-          final GrExpression operand = expression.getOperand();
-          final GroovyResolveResult[] candidates =
-            TypesUtil.getOverloadedUnaryOperatorCandidates(boxed, opToken, operand != null ? operand : expression, PsiType.EMPTY_ARRAY);
-          return candidates.length > 0;
+          final GroovyMethodCallReference reference = expression.getReference();
+          return !resolveWithArguments(new JustTypeArgument(boxed), reference.getMethodName(), reference.getArguments(), reference.getElement()).isEmpty();
         }
 
         @NotNull

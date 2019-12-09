@@ -12,8 +12,8 @@ import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.settings.LocationSettingType;
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil;
-import com.intellij.openapi.externalSystem.service.settings.ExternalSystemSettingsControlCustomizer;
 import com.intellij.openapi.externalSystem.service.ui.ExternalSystemJdkComboBox;
+import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil;
 import com.intellij.openapi.externalSystem.util.PaintAwarePanel;
 import com.intellij.openapi.options.ConfigurationException;
@@ -44,6 +44,7 @@ import com.intellij.util.ui.accessibility.ScreenReader;
 import com.intellij.xml.util.XmlStringUtil;
 import one.util.streamex.StreamEx;
 import org.gradle.util.GradleVersion;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.service.GradleInstallationManager;
@@ -77,7 +78,7 @@ import static com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil.INSE
  */
 @SuppressWarnings("FieldCanBeLocal") // Used implicitly by reflection at disposeUIResources() and showUi()
 public class IdeaGradleProjectSettingsControlBuilder implements GradleProjectSettingsControlBuilder {
-  private static final Logger LOG = Logger.getInstance("#" + IdeaGradleProjectSettingsControlBuilder.class.getPackage().getName());
+  private static final Logger LOG = Logger.getInstance(IdeaGradleProjectSettingsControlBuilder.class);
 
   private static final long BALLOON_DELAY_MILLIS = TimeUnit.SECONDS.toMillis(1);
   private static final String HIDDEN_KEY = "hidden";
@@ -90,8 +91,6 @@ public class IdeaGradleProjectSettingsControlBuilder implements GradleProjectSet
   @NotNull
   private LocationSettingType myGradleHomeSettingType = LocationSettingType.UNKNOWN;
   private boolean myShowBalloonIfNecessary;
-
-  private boolean dropUseAutoImportBox;
 
   @Nullable
   private TextFieldWithBrowseButton myGradleHomePathField;
@@ -187,8 +186,12 @@ public class IdeaGradleProjectSettingsControlBuilder implements GradleProjectSet
     return this;
   }
 
+  /**
+   * @deprecated see {@link ExternalProjectSettings#setUseAutoImport} for details
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public IdeaGradleProjectSettingsControlBuilder dropUseAutoImportBox() {
-    dropUseAutoImportBox = true;
     return this;
   }
 
@@ -247,11 +250,6 @@ public class IdeaGradleProjectSettingsControlBuilder implements GradleProjectSet
   @NotNull
   public GradleProjectSettings getInitialSettings() {
     return myInitialSettings;
-  }
-
-  @Override
-  public ExternalSystemSettingsControlCustomizer getExternalSystemSettingsControlCustomizer() {
-    return new ExternalSystemSettingsControlCustomizer(dropUseAutoImportBox);
   }
 
   @Override
@@ -538,9 +536,19 @@ public class IdeaGradleProjectSettingsControlBuilder implements GradleProjectSet
     if (myGradleHomePathField != null) {
       String gradleHomePath = FileUtil.toCanonicalPath(myGradleHomePathField.getText());
       File gradleHomeFile = new File(gradleHomePath);
-      String finalGradleHomePath = myInstallationManager.isGradleSdkHome(gradleHomeFile)
-                                   ? myInstallationManager.suggestBetterGradleHomePath(gradleHomePath)
-                                   : gradleHomePath;
+      String finalGradleHomePath;
+      if (myInstallationManager.isGradleSdkHome(gradleHomeFile)) {
+        finalGradleHomePath = gradleHomePath;
+      }
+      else {
+        finalGradleHomePath = myInstallationManager.suggestBetterGradleHomePath(gradleHomePath);
+        if (finalGradleHomePath != null) {
+          //noinspection SSBasedInspection
+          SwingUtilities.invokeLater(() -> {
+            myGradleHomePathField.setText(finalGradleHomePath);
+          });
+        }
+      }
       if (StringUtil.isEmpty(finalGradleHomePath)) {
         settings.setGradleHome(null);
       }

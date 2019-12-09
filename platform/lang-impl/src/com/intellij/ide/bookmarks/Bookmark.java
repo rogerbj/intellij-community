@@ -9,6 +9,8 @@ import com.intellij.ide.structureView.TreeBasedStructureViewBuilder;
 import com.intellij.lang.LanguageStructureViewBuilder;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.NavigationItem;
+import com.intellij.openapi.actionSystem.ActionGroup;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
@@ -41,6 +43,7 @@ import com.intellij.util.IconUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.ui.JBCachingScalableIcon;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -71,7 +74,8 @@ public final class Bookmark implements Navigatable, Comparable<Bookmark> {
   private char myMnemonic;
   int index; // index in the list of bookmarks in the Navigate|Bookmarks|show
 
-  Bookmark(@NotNull String url, int line, @NotNull String description) {
+  @ApiStatus.Internal
+  public Bookmark(@NotNull String url, int line, @NotNull String description) {
     myUrl = url;
     myLine = line;
     myDescription = description;
@@ -572,6 +576,12 @@ public final class Bookmark implements Navigatable, Comparable<Bookmark> {
     @Override
      public int hashCode() {
       return getIcon().hashCode();
+    }
+
+    @Nullable
+    @Override
+    public ActionGroup getPopupMenuActions() {
+      return (ActionGroup)ActionManager.getInstance().getAction("popup@BookmarkContextMenu");
     }
   }
 }

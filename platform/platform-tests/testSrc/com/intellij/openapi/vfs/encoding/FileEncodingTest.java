@@ -25,9 +25,9 @@ import com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TestDialog;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
@@ -68,6 +68,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNotEquals;
 
@@ -519,7 +520,7 @@ public class FileEncodingTest extends HeavyPlatformTestCase implements TestDialo
     assertEquals(CharsetToolkit.UTF_16BE_CHARSET, file.getCharset());
     assertArrayEquals(CharsetToolkit.UTF16BE_BOM, file.getBOM());
 
-    EncodingUtil.saveIn(document, null, file, StandardCharsets.UTF_8);
+    EncodingUtil.saveIn(getProject(), document, null, file, StandardCharsets.UTF_8);
 
     byte[] bytes = FileUtil.loadFileBytes(VfsUtilCore.virtualToIoFile(file));
 
@@ -567,17 +568,17 @@ public class FileEncodingTest extends HeavyPlatformTestCase implements TestDialo
     EncodingUtil.FailReason result = EncodingUtil.checkCanReload(file, null);
     assertEquals(EncodingUtil.FailReason.BY_BOM, result);
 
-    EncodingUtil.saveIn(document, null, file, WINDOWS_1251);
+    EncodingUtil.saveIn(getProject(), document, null, file, WINDOWS_1251);
     bytes = file.contentsToByteArray();
-    assertEquals(WINDOWS_1251, file.getCharset());
-    assertNull(file.getBOM());
+    assertThat(file.getCharset()).isEqualTo(WINDOWS_1251);
+    assertThat(file.getBOM()).isNull();
 
     Assert.assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, CharsetToolkit.UTF_16LE_CHARSET));
     Assert.assertSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, US_ASCII));
     result = EncodingUtil.checkCanReload(file, null);
     assertNull(result);
 
-    EncodingUtil.saveIn(document, null, file, CharsetToolkit.UTF_16LE_CHARSET);
+    EncodingUtil.saveIn(getProject(), document, null, file, CharsetToolkit.UTF_16LE_CHARSET);
     bytes = file.contentsToByteArray();
     assertEquals(CharsetToolkit.UTF_16LE_CHARSET, file.getCharset());
     assertArrayEquals(CharsetToolkit.UTF16LE_BOM, file.getBOM());
@@ -602,7 +603,7 @@ public class FileEncodingTest extends HeavyPlatformTestCase implements TestDialo
     Assert.assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, WINDOWS_1251));
     Assert.assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, US_ASCII));
 
-    EncodingUtil.saveIn(document, null, file, US_ASCII);
+    EncodingUtil.saveIn(getProject(), document, null, file, US_ASCII);
     bytes = file.contentsToByteArray();
     assertEquals(US_ASCII, file.getCharset());
     assertNull(file.getBOM());
@@ -801,8 +802,7 @@ public class FileEncodingTest extends HeavyPlatformTestCase implements TestDialo
       File temp = createTempDirectory();
       VirtualFile tempDir = requireNonNull(LocalFileSystem.getInstance().refreshAndFindFileByIoFile(temp));
 
-      Project newProject = ProjectManagerEx.getInstanceEx().newProject(Paths.get(tempDir.getPath()), false);
-      Disposer.register(getTestRootDisposable(), () -> ApplicationManager.getApplication().runWriteAction(() -> Disposer.dispose(newProject)));
+      Project newProject = ProjectManagerEx.getInstanceEx().newProjectForTest(Paths.get(tempDir.getPath()), getTestRootDisposable());
       PlatformTestUtil.saveProject(newProject);
 
       Charset newProjectEncoding = EncodingProjectManager.getInstance(newProject).getDefaultCharset();
@@ -823,16 +823,16 @@ public class FileEncodingTest extends HeavyPlatformTestCase implements TestDialo
     VirtualFile file = requireNonNull(dir.findFileByRelativePath("src/xxx.txt"));
 
     Document document = requireNonNull(FileDocumentManager.getInstance().getDocument(file));
-    assertNotNull(document.getText());
+    assertThat(document.getText()).isNotNull();
     UIUtil.dispatchAllInvocationEvents();
 
     Project newEncodingProject = requireNonNull(ProjectUtil.openProject(dir.getPath(), null, false));
-    UIUtil.dispatchAllInvocationEvents();
     try {
-      assertEquals(US_ASCII, file.getCharset());
+      UIUtil.dispatchAllInvocationEvents();
+      assertThat(file.getCharset()).isEqualTo(US_ASCII);
     }
     finally {
-      ProjectManagerEx.getInstanceEx().forceCloseProject(newEncodingProject, true);
+      ProjectManagerEx.getInstanceEx().forceCloseProject(newEncodingProject);
     }
   }
 
@@ -1041,6 +1041,52 @@ public class FileEncodingTest extends HeavyPlatformTestCase implements TestDialo
     }
     finally {
       fileTypeManager.unregisterFileType(foo);
+    }
+  }
+
+  public void testSetMappingMustResetEncodingOfNotYetLoadedFiles() {
+    VirtualFile dir = getTempDir().createTempVDir();
+    ModuleRootModificationUtil.addContentRoot(getModule(), dir);
+    VirtualFile file = createChildData(dir, "my.txt");
+    setFileText(file, "xxx");
+    file.setCharset(US_ASCII);
+    FileDocumentManager.getInstance().saveAllDocuments();
+    UIUtil.dispatchAllInvocationEvents();
+
+    assertNull(FileDocumentManager.getInstance().getCachedDocument(file));
+    assertEquals(US_ASCII, file.getCharset());
+
+    ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(getProject())).setMapping(Collections.singletonMap(dir, WINDOWS_1251));
+    assertEquals(WINDOWS_1251, file.getCharset());
+  }
+
+  public void testEncodingMappingMustNotContainInvalidFiles() {
+    VirtualFile dir = getTempDir().createTempVDir();
+    VirtualFile root = dir.getParent();
+    ModuleRootModificationUtil.addContentRoot(getModule(), dir);
+    FileDocumentManager.getInstance().saveAllDocuments();
+    UIUtil.dispatchAllInvocationEvents();
+
+    ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(getProject())).setMapping(Collections.singletonMap(dir, WINDOWS_1251));
+    Set<? extends VirtualFile> mappings = ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(getProject())).getAllMappings().keySet();
+    assertTrue(mappings.contains(dir));
+
+    delete(dir);
+    UIUtil.dispatchAllInvocationEvents();
+    assertFalse(dir.isValid());
+
+    mappings = ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(getProject())).getAllMappings().keySet();
+    assertFalse(mappings.contains(dir));
+    for (VirtualFile mapping : mappings) {
+      assertTrue(mapping.isValid());
+    }
+
+    dir = createChildDirectory(root, dir.getName());
+
+    mappings = ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(getProject())).getAllMappings().keySet();
+    assertTrue(mappings.contains(dir));
+    for (VirtualFile mapping : ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(getProject())).getAllMappings().keySet()) {
+      assertTrue(mapping.isValid());
     }
   }
 }

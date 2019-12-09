@@ -53,7 +53,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class JavaDocInfoGenerator {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.javadoc.JavaDocInfoGenerator");
+  private static final Logger LOG = Logger.getInstance(JavaDocInfoGenerator.class);
 
   private interface InheritDocProvider<T> {
     Pair<T, InheritDocProvider<T>> getInheritDoc();
@@ -1064,7 +1064,7 @@ public class JavaDocInfoGenerator {
       PsiParameter parm = parameters[i];
       generateAnnotations(buffer, parm, place, false);
       generateType(buffer, parm.getType(), method, generateLink, isTooltip);
-      if (parm.getName() != null && !isTooltip) {
+      if (!isTooltip) {
         buffer.append(NBSP);
         buffer.append(parm.getName());
       }
@@ -1365,7 +1365,7 @@ public class JavaDocInfoGenerator {
   protected void collectElementText(StringBuilder buffer, PsiElement element) {
     element.accept(new PsiRecursiveElementWalkingVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         super.visitElement(element);
         if (element instanceof PsiWhiteSpace ||
             element instanceof PsiJavaToken ||
@@ -1648,6 +1648,10 @@ public class JavaDocInfoGenerator {
     if (parentClass == null) return;
     if (parentClass.isInterface() && !overrides) return;
     PsiMethod[] supers = method.findSuperMethods();
+    Arrays.sort(supers, Comparator.comparing(m-> {
+      PsiClass aClass = m.getContainingClass();
+      return aClass == null ? null : aClass.getName();
+    }));
     if (supers.length == 0) return;
     boolean headerGenerated = false;
     for (PsiMethod superMethod : supers) {

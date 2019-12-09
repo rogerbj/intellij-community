@@ -47,7 +47,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class PsiImplUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.PsiImplUtil");
+  private static final Logger LOG = Logger.getInstance(PsiImplUtil.class);
 
   private PsiImplUtil() { }
 
@@ -56,7 +56,7 @@ public class PsiImplUtil {
     List<PsiMethod> result = null;
     for (PsiMethod method : aClass.getMethods()) {
       if (method.isConstructor() && method.getName().equals(aClass.getName())) {
-        if (result == null) result = ContainerUtil.newSmartList();
+        if (result == null) result = new SmartList<>();
         result.add(method);
       }
     }

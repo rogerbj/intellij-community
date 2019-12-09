@@ -3,8 +3,6 @@ package com.intellij.ui.mac.touchbar;
 
 import com.intellij.ide.ui.UISettings;
 import com.intellij.jna.JnaLoader;
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Pair;
@@ -35,7 +33,7 @@ public class NST {
   private static final String MIN_OS_VERSION = "10.12.2";
   static boolean isSupportedOS() { return SystemInfo.isMac && SystemInfo.isOsVersionAtLeast(MIN_OS_VERSION); }
 
-  static {
+  static void initialize() {
     try {
       if (!isSupportedOS()) {
         LOG.info("OS doesn't support touchbar, skip nst loading");
@@ -55,7 +53,8 @@ public class NST {
       else {
         try {
           loadLibrary();
-        } catch (Throwable e) {
+        }
+        catch (Throwable e) {
           LOG.error("Failed to load nst library for touchbar: ", e);
         }
 
@@ -63,22 +62,26 @@ public class NST {
           // small check that loaded library works
           try {
             final ID test = ourNSTLibrary.createTouchBar("test", (uid) -> ID.NIL, null);
-            if (test == null || test == ID.NIL) {
+            if (test == null || test.equals(ID.NIL)) {
               LOG.error("Failed to create native touchbar object, result is null");
               ourNSTLibrary = null;
-            } else {
+            }
+            else {
               ourNSTLibrary.releaseTouchBar(test);
               LOG.info("nst library works properly, successfully created and released native touchbar object");
             }
-          } catch (Throwable e) {
+          }
+          catch (Throwable e) {
             LOG.error("nst library was loaded, but can't be used: ", e);
             ourNSTLibrary = null;
           }
-        } else {
+        }
+        else {
           LOG.error("nst library wasn't loaded");
         }
       }
-    } catch (Throwable e) {
+    }
+    catch (Throwable e) {
       LOG.error(e);
     }
   }
@@ -139,17 +142,17 @@ public class NST {
 
   // NOTE: due to optimization scrubber is created without icons
   // icons must be updated async via updateScrubberItems
+  @SuppressWarnings("unused")
   public static ID createScrubber(
     String uid, int itemWidth, NSTLibrary.ScrubberDelegate delegate, NSTLibrary.ScrubberCacheUpdater updater,
     List<? extends TBItemScrubber.ItemData> items, int visibleItems, @Nullable TouchBarStats stats
   ) {
     final Pair<Pointer, Integer> mem = items == null ? null : _packItems(items, 0, items.size(), visibleItems, false, true);
-    final ID scrubberNativePeer = ourNSTLibrary.createScrubber(uid, itemWidth, delegate, updater, mem == null ? null : mem.getFirst(), mem == null ? 0 : mem.getSecond()); // called from AppKit, uses per-event autorelease-pool
-    return scrubberNativePeer;
+    return ourNSTLibrary.createScrubber(uid, itemWidth, delegate, updater, mem == null ? null : mem.getFirst(), mem == null ? 0 : mem.getSecond()); // called from AppKit, uses per-event autorelease-pool
   }
 
   public static ID createGroupItem(String uid, ID[] items) {
-    return ourNSTLibrary.createGroupItem(uid, items == null || items.length == 0 ? null : items, items.length); // called from AppKit, uses per-event autorelease-pool
+    return ourNSTLibrary.createGroupItem(uid, items == null || items.length == 0 ? null : items, items == null ? 0 : items.length); // called from AppKit, uses per-event autorelease-pool
   }
 
   public static void updateButton(ID buttonObj,
@@ -181,7 +184,7 @@ public class NST {
     if (indices == null || indices.isEmpty())
       return null;
     final int step = Native.getNativeSize(Integer.class);
-    final Pointer mem = new Pointer(Native.malloc(indices.size()*step));
+    final Pointer mem = new Pointer(Native.malloc((long)indices.size() * step));
     int offset = 0;
     for (Integer i: indices) {
       mem.setInt(offset, i);
@@ -226,72 +229,86 @@ public class NST {
       LOG.error("_packItems: fromIndex + itemsCount > items.size() (" + fromIndex + ", " + itemsCount + ", " + items.size() + ")");
       return null;
     }
+    long ptr = 0;
+    try {
+      // 1. calculate size
+      int byteCount = 2;
+      for (int c = 0; c < itemsCount; ++c) {
+        TBItemScrubber.ItemData id = items.get(fromIndex + c);
+        id.offset = byteCount;
+        if (c >= visibleItems) {
+          byteCount += 6;
+          continue;
+        }
+        final int textSize = 2 + (withText && id.getTextBytes() != null && id.getTextBytes().length > 0 ? id.getTextBytes().length + 1 : 0);
+        byteCount += textSize;
 
-    // 1. calculate size
-    int byteCount = 2;
-    for (int c = 0; c < itemsCount; ++c) {
-      if (c >= visibleItems) {
-        byteCount += 6;
-        continue;
+        id.darkIcon =
+          withImages && id.getIcon() != null && !(id.getIcon() instanceof EmptyIcon) && id.getIcon().getIconWidth() > 0 && id.getIcon().getIconHeight() > 0 ?
+          IconLoader.getDarkIcon(id.getIcon(), true) : null;
+
+        if (id.darkIcon != null) {
+          id.fMulX = getIconScaleForTouchbar(id.getIcon());
+          id.scaledWidth = Math.round(id.getIcon().getIconWidth()*id.fMulX);
+          id.scaledHeight = Math.round(id.getIcon().getIconHeight()*id.fMulX);
+          final int sizeInBytes = id.scaledWidth * id.scaledHeight * 4;
+          final int totalSize = sizeInBytes + 4;
+          byteCount += totalSize;
+        } else
+          byteCount += 4;
       }
-      TBItemScrubber.ItemData id = items.get(fromIndex + c);
-      byteCount += 2 + (withText && id.getTextBytes() != null ? id.getTextBytes().length + 1 : 0);
 
-      if (withImages && id.getIcon() != null && id.getIcon().getIconHeight() != 0) {
-        id.fMulX = getIconScaleForTouchbar(id.getIcon());
+      // 2. write items
+      final Pointer result = new Pointer(ptr = Native.malloc(byteCount));
+      result.setShort(0, (short)itemsCount);
+      int offset = 2;
+      for (int c = 0; c < itemsCount; ++c) {
+        TBItemScrubber.ItemData id = items.get(fromIndex + c);
+        if (id.offset != offset)
+          throw new Exception("Offset mismatch: scrubber item " + c + ", id.offset=" + id.offset + " offset=" + offset);
+        if (c >= visibleItems) {
+          result.setShort(offset, (short)0);
+          result.setShort(offset + 2, (short)0);
+          result.setShort(offset + 4, (short)0);
+          offset += 6;
+          continue;
+        }
 
-        final int w = Math.round(id.getIcon().getIconWidth()*id.fMulX);
-        final int h = Math.round(id.getIcon().getIconHeight()*id.fMulX);
-        final int sizeInBytes = w * h * 4;
-        final int totalSize = sizeInBytes + 4;
-        byteCount += totalSize;
-      } else
-        byteCount += 4;
+        final byte[] txtBytes = withText ? id.getTextBytes() : null;
+        if (txtBytes != null && txtBytes.length > 0) {
+          result.setShort(offset, (short)txtBytes.length);
+          offset += 2;
+          result.write(offset, txtBytes, 0, txtBytes.length);
+          offset += txtBytes.length;
+          result.setByte(offset, (byte)0);
+          offset += 1;
+        } else {
+          result.setShort(offset, (short)0);
+          offset += 2;
+        }
+
+        if (withImages && id.darkIcon != null) {
+          offset += _writeIconRaster(id.darkIcon, id.fMulX, result, offset, byteCount);
+        } else {
+          final boolean hasIcon = id.getIcon() != null && !(id.getIcon() instanceof EmptyIcon) && id.getIcon().getIconWidth() > 0 && id.getIcon().getIconHeight() > 0;
+          result.setShort(offset, hasIcon ? (short) 1: (short)0);
+          result.setShort(offset + 2, (short)0);
+          offset += 4;
+        }
+      }
+
+      return Pair.create(result, byteCount);
+    } catch (Throwable e) {
+      if (ptr != 0) {
+        Native.free(ptr);
+      }
+      LOG.error(e);
+      return null;
     }
-
-    // 2. write items
-    final Pointer result = new Pointer(Native.malloc(byteCount));
-    result.setShort(0, (short)itemsCount);
-    int offset = 2;
-    for (int c = 0; c < itemsCount; ++c) {
-      if (c >= visibleItems) {
-        result.setShort(offset, (short)0);
-        result.setShort(offset + 2, (short)0);
-        result.setShort(offset + 4, (short)0);
-        offset += 6;
-        continue;
-      }
-      TBItemScrubber.ItemData id = items.get(fromIndex + c);
-
-      final byte[] txtBytes = withText ? id.getTextBytes() : null;
-      if (txtBytes != null && txtBytes.length > 0) {
-        result.setShort(offset, (short)txtBytes.length);
-        offset += 2;
-        result.write(offset, txtBytes, 0, txtBytes.length);
-        offset += txtBytes.length;
-        result.setByte(offset, (byte)0);
-        offset += 1;
-      } else {
-        result.setShort(offset, (short)0);
-        offset += 2;
-      }
-
-      final boolean hasIcon = id.getIcon() != null && !(id.getIcon() instanceof EmptyIcon);
-      if (withImages && hasIcon) {
-        final Icon icon = IconLoader.getDarkIcon(id.getIcon(), true);
-        offset += _writeIconRaster(icon, id.fMulX, result, offset);
-      } else {
-        result.setShort(offset, hasIcon ? (short) 1: (short)0);
-        result.setShort(offset + 2, (short)0);
-        offset += 4;
-      }
-    }
-
-    return Pair.create(result, byteCount);
   }
 
   protected static Pair<Pointer, Dimension> get4ByteRGBARaster(@Nullable Icon icon) {
-    if (icon == null || icon.getIconHeight() == 0)
+    if (icon == null || icon.getIconHeight() <= 0 || icon.getIconWidth() <= 0)
       return null;
 
     final float fMulX = getIconScaleForTouchbar(icon);
@@ -312,7 +329,7 @@ public class NST {
   private static int _getImgH(BufferedImage img) { return img == null ? 0 : img.getHeight(); }
 
   private static BufferedImage _getImg4ByteRGBA(Icon icon, float scale) {
-    if (icon == null)
+    if (icon == null || icon.getIconHeight() <= 0 || icon.getIconWidth() <= 0)
       return null;
 
     final int w = Math.round(icon.getIconWidth()*scale);
@@ -328,15 +345,13 @@ public class NST {
     // icons generally should not exceed 44px in height (36px for circular icons)
     // Ideal icon size	    36px X 36px (18pt X 18pt @2x)
     // Maximum icon size    44px X 44px (22pt X 22pt @2x)
-
-    final Application app = ApplicationManager.getApplication();
-    return app != null && UISettings.getInstance().getPresentationMode() ?
+    return UISettings.getInstance().getPresentationMode() ?
            40.f/icon.getIconHeight() :
            (icon.getIconHeight() < 24 ? 40.f/16 : 44.f/icon.getIconHeight());
   }
 
   private static BufferedImage _getImg4ByteRGBA(@Nullable Icon icon) {
-    if (icon == null || icon.getIconHeight() == 0)
+    if (icon == null || icon.getIconHeight() <= 0 || icon.getIconWidth() <= 0)
       return null;
 
     final float fMulX = getIconScaleForTouchbar(icon);
@@ -344,12 +359,20 @@ public class NST {
   }
 
   // returns count of written bytes
-  private static int _writeIconRaster(@NotNull Icon icon, float scale, @NotNull Pointer memory, int offset) {
+  private static int _writeIconRaster(@NotNull Icon icon, float scale, @NotNull Pointer memory, int offset, int totalMemoryBytes) throws Exception {
     final int w = Math.round(icon.getIconWidth()*scale);
     final int h = Math.round(icon.getIconHeight()*scale);
 
+    if (w <= 0 || h <= 0) {
+      throw new Exception("Incorrect icon sizes: " + icon.getIconWidth() + "x" + icon.getIconHeight() + ", scale=" + scale);
+    }
+
     final int rasterSizeInBytes = w * h * 4;
     final int totalSize = rasterSizeInBytes + 4;
+
+    if (offset + totalSize > totalMemoryBytes) {
+      throw new Exception("Incorrect memory offset: offset=" + offset + ", rasterSize=" + rasterSizeInBytes + ", totalMemoryBytes=" + totalMemoryBytes);
+    }
 
     memory.setShort(offset, (short)w);
     offset += 2;
@@ -362,7 +385,7 @@ public class NST {
   }
 
   // returns count of written bytes
-  private static @Nullable BufferedImage _drawIconIntoMemory(@NotNull Icon icon, float scale, @NotNull Pointer memory, int offset) {
+  private static @NotNull BufferedImage _drawIconIntoMemory(@NotNull Icon icon, float scale, @NotNull Pointer memory, int offset) {
     final int w = Math.round(icon.getIconWidth()*scale);
     final int h = Math.round(icon.getIconHeight()*scale);
     final int rasterSizeInBytes = w * h * 4;
@@ -389,31 +412,36 @@ class DirectDataBufferInt extends DataBuffer {
   protected Pointer myMemory;
   private final int myOffset;
 
-  public DirectDataBufferInt(Pointer memory, int memLength, int offset) {
+  DirectDataBufferInt(Pointer memory, int memLength, int offset) {
     super(TYPE_INT, memLength);
     this.myMemory = memory;
     this.myOffset = offset;
   }
+  @Override
   public int getElem(int bank, int i) {
-    return myMemory.getInt(myOffset + i*4); // same as: *((jint *)((char *)Pointer + offset))
+    return myMemory.getInt(myOffset + i * 4L); // same as: *((jint *)((char *)Pointer + offset))
   }
+  @Override
   public void setElem(int bank, int i, int val) {
-    myMemory.setInt(myOffset + i*4, val); // same as: *((jint *)((char *)Pointer + offset)) = value
+    myMemory.setInt(myOffset + i * 4L, val); // same as: *((jint *)((char *)Pointer + offset)) = value
   }
 }
 
+@SuppressWarnings("unused")
 class DirectDataBufferByte extends DataBuffer {
   protected Pointer myMemory;
   private final int myOffset;
 
-  public DirectDataBufferByte(Pointer mem, int memLength, int offset) {
+  DirectDataBufferByte(Pointer mem, int memLength, int offset) {
     super(TYPE_BYTE, memLength);
     this.myMemory = mem;
     this.myOffset = offset;
   }
+  @Override
   public int getElem(int bank, int i) {
     return myMemory.getByte(myOffset + i); // same as: *((jbyte *)((char *)Pointer + offset))
   }
+  @Override
   public void setElem(int bank, int i, int val) {
     myMemory.setByte(myOffset + i, (byte)val); // same as: *((jbyte *)((char *)Pointer + offset)) = value
   }

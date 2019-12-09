@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes.committed;
 
@@ -18,33 +18,24 @@ import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.versionBrowser.ChangeBrowserSettings;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.FilterComponent;
-import com.intellij.ui.LightColors;
 import com.intellij.util.AsynchConsumer;
 import com.intellij.util.BufferedListConsumer;
 import com.intellij.util.Consumer;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 import java.awt.*;
-import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
-import static com.intellij.openapi.util.text.StringUtil.isEmpty;
+import static com.intellij.openapi.vcs.VcsDataKeys.REMOTE_HISTORY_CHANGED_LISTENER;
+import static com.intellij.openapi.vcs.VcsDataKeys.REMOTE_HISTORY_LOCATION;
 import static com.intellij.util.WaitForProgressToShow.runOrInvokeLaterAboveProgress;
 
-public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvider, Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.changes.committed.CommittedChangesPanel");
+public class CommittedChangesPanel extends JPanel implements DataProvider, Disposable {
+  private static final Logger LOG = Logger.getInstance(CommittedChangesPanel.class);
 
   private final CommittedChangesTreeBrowser myBrowser;
   private final Project myProject;
@@ -52,16 +43,16 @@ public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvide
   private ChangeBrowserSettings mySettings;
   private final RepositoryLocation myLocation;
   private int myMaxCount = 0;
-  private final MyFilterComponent myFilterComponent = new MyFilterComponent();
-  private final JCheckBox myRegexCheckbox;
   private final List<Runnable> myShouldBeCalledOnDispose;
   private volatile boolean myDisposed;
   private volatile boolean myInLoad;
   private final Consumer<String> myIfNotCachedReloader;
-  private boolean myChangesLoaded;
 
-  public CommittedChangesPanel(Project project, final CommittedChangesProvider provider, final ChangeBrowserSettings settings,
-                               @Nullable final RepositoryLocation location, @Nullable ActionGroup extraActions) {
+  public CommittedChangesPanel(@NotNull Project project,
+                               @NotNull CommittedChangesProvider provider,
+                               ChangeBrowserSettings settings,
+                               @Nullable RepositoryLocation location,
+                               @Nullable ActionGroup extraActions) {
     super(new BorderLayout());
     mySettings = settings;
     myProject = project;
@@ -77,37 +68,30 @@ public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvide
     JPanel toolbarPanel = new JPanel();
     toolbarPanel.setLayout(new BoxLayout(toolbarPanel, BoxLayout.X_AXIS));
 
-    ActionGroup group = (ActionGroup) ActionManager.getInstance().getAction("CommittedChangesToolbar");
+    ActionGroup group = (ActionGroup)ActionManager.getInstance().getAction("CommittedChangesToolbar");
 
     ActionToolbar toolBar = myBrowser.createGroupFilterToolbar(project, group, extraActions,
                                                                auxiliary != null ? auxiliary.getToolbarActions() : Collections.emptyList());
+    CommittedChangesFilterComponent filterComponent = new CommittedChangesFilterComponent();
+    Disposer.register(this, filterComponent);
+
     toolbarPanel.add(toolBar.getComponent());
     toolbarPanel.add(Box.createHorizontalGlue());
-    myRegexCheckbox = new JCheckBox(VcsBundle.message("committed.changes.regex.title"));
-    myRegexCheckbox.setSelected(false);
-    myRegexCheckbox.getModel().addItemListener(new ItemListener() {
-      @Override
-      public void itemStateChanged(ItemEvent e) {
-        if (!isEmpty(myFilterComponent.getFilter())) {
-          myFilterComponent.filter();
-        }
-      }
-    });
-    toolbarPanel.add(myFilterComponent);
-    toolbarPanel.add(myRegexCheckbox);
-    myFilterComponent.setMinimumSize(myFilterComponent.getPreferredSize());
-    myFilterComponent.setMaximumSize(myFilterComponent.getPreferredSize());
+    toolbarPanel.add(filterComponent);
+    filterComponent.setMinimumSize(filterComponent.getPreferredSize());
+    filterComponent.setMaximumSize(filterComponent.getPreferredSize());
     myBrowser.setToolBar(toolbarPanel);
 
     if (auxiliary != null) {
       myShouldBeCalledOnDispose.add(auxiliary.getCalledOnViewDispose());
       myBrowser.setTableContextMenu(group, auxiliary.getPopupActions());
-    } else {
+    }
+    else {
       myBrowser.setTableContextMenu(group, Collections.emptyList());
     }
 
     EmptyAction.registerWithShortcutSet("CommittedChanges.Refresh", CommonShortcuts.getRerun(), this);
-    myBrowser.addFilter(myFilterComponent);
+    myBrowser.addFilter(filterComponent);
     myIfNotCachedReloader = myLocation == null ? null : s -> refreshChanges(false);
   }
 
@@ -198,75 +182,11 @@ public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvide
     });
   }
 
-  private interface FilterHelper {
-    boolean filter(@NotNull final CommittedChangeList cl);
-  }
-
-  private class RegexFilterHelper implements FilterHelper {
-    private final Pattern myPattern;
-
-    RegexFilterHelper(@NotNull final String regex) {
-      Pattern pattern;
-      try {
-        pattern = Pattern.compile(regex);
-      } catch (PatternSyntaxException e) {
-        pattern = null;
-        myBrowser.getEmptyText().setText(VcsBundle.message("committed.changes.incorrect.regex.message"));
-      }
-      this.myPattern = pattern;
-    }
-
-    @Override
-    public boolean filter(@NotNull CommittedChangeList cl) {
-      return changeListMatches(cl);
-    }
-
-    private boolean changeListMatches(@NotNull CommittedChangeList cl) {
-      if (myPattern == null) {
-        return false;
-      }
-      boolean commentMatches = myPattern.matcher(cl.getComment()).find();
-      boolean committerMatches = myPattern.matcher(cl.getCommitterName()).find();
-      boolean revisionMatches = myPattern.matcher(Long.toString(cl.getNumber())).find();
-      return commentMatches || committerMatches || revisionMatches;
-    }
-  }
-
-  private static class WordMatchFilterHelper implements FilterHelper {
-    private final String[] myParts;
-
-    WordMatchFilterHelper(final String filterString) {
-      myParts = filterString.split(" ");
-      for(int i = 0; i < myParts.length; ++ i) {
-        myParts [i] = StringUtil.toLowerCase(myParts [i]);
-      }
-    }
-
-    @Override
-    public boolean filter(@NotNull final CommittedChangeList cl) {
-      return changeListMatches(cl, myParts);
-    }
-
-    private static boolean changeListMatches(@NotNull final CommittedChangeList changeList, final String[] filterWords) {
-      for(String word: filterWords) {
-        final String comment = changeList.getComment();
-        final String committer = changeList.getCommitterName();
-        if ((comment != null && StringUtil.toLowerCase(comment).contains(word)) ||
-            (committer != null && StringUtil.toLowerCase(committer).contains(word)) ||
-            Long.toString(changeList.getNumber()).contains(word)) {
-          return true;
-        }
-      }
-      return false;
-    }
-  }
-
   private void updateFilteredModel(List<? extends CommittedChangeList> committedChangeLists, final boolean reset) {
     if (committedChangeLists == null) {
       return;
     }
-    myChangesLoaded = !reset;
-    setEmptyMessage(myChangesLoaded);
+    setEmptyMessage(!reset);
     myBrowser.setItems(committedChangeLists, CommittedChangesBrowserUseCase.COMMITTED);
   }
 
@@ -288,16 +208,12 @@ public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvide
     }
   }
 
+  @Nullable
   @Override
-  public void calcData(@NotNull DataKey key, @NotNull DataSink sink) {
-    if (key.equals(VcsDataKeys.REMOTE_HISTORY_CHANGED_LISTENER)) {
-      sink.put(VcsDataKeys.REMOTE_HISTORY_CHANGED_LISTENER, myIfNotCachedReloader);
-    } else if (VcsDataKeys.REMOTE_HISTORY_LOCATION.equals(key)) {
-      sink.put(VcsDataKeys.REMOTE_HISTORY_LOCATION, myLocation);
-    }
-    //if (key.equals(VcsDataKeys.CHANGES) || key.equals(VcsDataKeys.CHANGE_LISTS)) {
-      myBrowser.calcData(key, sink);
-    //}
+  public Object getData(@NotNull String dataId) {
+    if (REMOTE_HISTORY_CHANGED_LISTENER.is(dataId)) return myIfNotCachedReloader;
+    if (REMOTE_HISTORY_LOCATION.is(dataId)) return myLocation;
+    return myBrowser.getData(dataId);
   }
 
   @Override
@@ -308,78 +224,6 @@ public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvide
     myDisposed = true;
   }
 
-  private void setRegularFilterBackground() {
-    myFilterComponent.getTextEditor().setBackground(UIUtil.getTextFieldBackground());
-  }
-
-  private void setNotFoundFilterBackground() {
-    myFilterComponent.getTextEditor().setBackground(LightColors.RED);
-  }
-
-  private class MyFilterComponent extends FilterComponent implements ChangeListFilteringStrategy {
-    private final List<ChangeListener> myList = ContainerUtil.createLockFreeCopyOnWriteList();
-
-    MyFilterComponent() {
-      super("COMMITTED_CHANGES_FILTER_HISTORY", 20);
-    }
-
-    @Override
-    public CommittedChangesFilterKey getKey() {
-      return new CommittedChangesFilterKey("text", CommittedChangesFilterPriority.TEXT);
-    }
-
-    @Override
-    public void filter() {
-      for (ChangeListener changeListener : myList) {
-        changeListener.stateChanged(new ChangeEvent(this));
-      }
-    }
-    @Override
-    public JComponent getFilterUI() {
-      return null;
-    }
-    @Override
-    public void setFilterBase(List<? extends CommittedChangeList> changeLists) {
-    }
-    @Override
-    public void addChangeListener(ChangeListener listener) {
-      myList.add(listener);
-    }
-    @Override
-    public void removeChangeListener(ChangeListener listener) {
-      myList.remove(listener);
-    }
-    @Override
-    public void resetFilterBase() {
-    }
-    @Override
-    public void appendFilterBase(List<? extends CommittedChangeList> changeLists) {
-    }
-    @Override
-    @NotNull
-    public List<CommittedChangeList> filterChangeLists(List<? extends CommittedChangeList> changeLists) {
-      final FilterHelper filterHelper;
-      setEmptyMessage(myChangesLoaded);
-      if (myRegexCheckbox.isSelected()) {
-        filterHelper = new RegexFilterHelper(myFilterComponent.getFilter());
-      } else {
-        filterHelper = new WordMatchFilterHelper(myFilterComponent.getFilter());
-      }
-      final List<CommittedChangeList> result = new ArrayList<>();
-      for (CommittedChangeList list : changeLists) {
-        if (filterHelper.filter(list)) {
-          result.add(list);
-        }
-      }
-      if (result.size() == 0 && !myFilterComponent.getFilter().isEmpty()) {
-        setNotFoundFilterBackground();
-      } else {
-        setRegularFilterBackground();
-      }
-      return result;
-    }
-  }
-
   public void passCachedListsToListener(final VcsConfigurationChangeListener.DetailedNotification notification,
                                         final Project project, final VirtualFile root) {
     final List<CommittedChangeList> resultList = new ArrayList<>();
@@ -387,14 +231,16 @@ public class CommittedChangesPanel extends JPanel implements TypeSafeDataProvide
       @Override
       public void onBeforeStartReport() {
       }
+
       @Override
-      public boolean report(CommittedChangeList list) {
+      public boolean report(@NotNull CommittedChangeList list) {
         resultList.add(list);
         return false;
       }
+
       @Override
       public void onAfterEndReport() {
-        if (! resultList.isEmpty()) {
+        if (!resultList.isEmpty()) {
           notification.execute(project, root, resultList);
         }
       }

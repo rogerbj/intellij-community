@@ -122,7 +122,7 @@ public abstract class JavaTestFrameworkRunnableState<T extends
 
   @NotNull protected abstract OSProcessHandler createHandler(Executor executor) throws ExecutionException;
 
-  public SearchForTestsTask createSearchingForTestsTask() {
+  public SearchForTestsTask createSearchingForTestsTask() throws ExecutionException {
     return null;
   }
 
@@ -212,14 +212,19 @@ public abstract class JavaTestFrameworkRunnableState<T extends
 
   protected abstract void configureRTClasspath(JavaParameters javaParameters, Module module) throws CantRunException;
 
+  protected Sdk getJdk() {
+    Project project = getConfiguration().getProject();
+    final Module module = getConfiguration().getConfigurationModule().getModule();
+
+    return module == null ? ProjectRootManager.getInstance(project).getProjectSdk() : ModuleRootManager.getInstance(module).getSdk();
+  }
+  
   @Override
   protected JavaParameters createJavaParameters() throws ExecutionException {
     final JavaParameters javaParameters = new JavaParameters();
     Project project = getConfiguration().getProject();
     final Module module = getConfiguration().getConfigurationModule().getModule();
-
-    Sdk jdk = module == null ? ProjectRootManager.getInstance(project).getProjectSdk() : ModuleRootManager.getInstance(module).getSdk();
-    javaParameters.setJdk(jdk);
+    javaParameters.setJdk(getJdk());
 
     final String parameters = getConfiguration().getProgramParameters();
     getConfiguration().setProgramParameters(null);
@@ -371,7 +376,7 @@ public abstract class JavaTestFrameworkRunnableState<T extends
       .computeWithAlternativeResolveEnabled(() -> JavaModuleGraphUtil.findDescriptorByModule(module, inTests));
   }
 
-  private static void configureModulePath(JavaParameters javaParameters, @NotNull Module module) {
+  private void configureModulePath(JavaParameters javaParameters, @NotNull Module module) {
     PsiJavaModule testModule = findJavaModule(module, true);
     if (testModule != null) {
       //adding the test module explicitly as it is unreachable from `idea.rt`
@@ -400,7 +405,7 @@ public abstract class JavaTestFrameworkRunnableState<T extends
    * Put dependencies reachable from module-info located in production sources on the module path
    * leave all other dependencies on the class path as is
    */
-  private static void splitDepsBetweenModuleAndClasspath(JavaParameters javaParameters, Module module, PsiJavaModule prodModule) {
+  private void splitDepsBetweenModuleAndClasspath(JavaParameters javaParameters, Module module, PsiJavaModule prodModule) {
     CompilerModuleExtension compilerExt = CompilerModuleExtension.getInstance(module);
     if (compilerExt == null) return;
 
@@ -412,21 +417,47 @@ public abstract class JavaTestFrameworkRunnableState<T extends
     ParametersList vmParametersList = javaParameters.getVMParametersList()
       .addParamsGroup(JIGSAW_OPTIONS)
       .getParametersList();
+    String prodModuleName = prodModule.getName();
+
     //ensure test output is merged to the production module
     VirtualFile testOutput = compilerExt.getCompilerOutputPathForTests();
     if (testOutput != null) {
       vmParametersList.add("--patch-module");
-      vmParametersList.add(prodModule.getName() + "=" + testOutput.getPath());
+      vmParametersList.add(prodModuleName + "=" + testOutput.getPath());
     }
 
     //ensure test dependencies missing from production module descriptor are available in tests
     //todo enumerate all test dependencies explicitly
     vmParametersList.add("--add-reads");
-    vmParametersList.add(prodModule.getName() + "=ALL-UNNAMED");
+    vmParametersList.add(prodModuleName + "=ALL-UNNAMED");
+
+    //open packages with tests to test runner
+    List<String> opensOptions = new ArrayList<>();
+    collectPackagesToOpen(opensOptions);
+    for (String option : opensOptions) {
+      if (option.isEmpty()) continue;
+      vmParametersList.add("--add-opens");
+      vmParametersList.add(prodModuleName + "/" + option + "=ALL-UNNAMED");
+    }
 
     //ensure production module is explicitly added as test starter in `idea-rt` doesn't depend on it
     vmParametersList.add("--add-modules");
-    vmParametersList.add(prodModule.getName());
+    vmParametersList.add(prodModuleName);
+  }
+
+  protected void collectPackagesToOpen(List<String> options) { }
+
+  /**
+   * called on EDT
+   */
+  protected static void collectSubPackages(List<String> options, PsiPackage aPackage, GlobalSearchScope globalSearchScope) {
+    if (aPackage.getClasses(globalSearchScope).length > 0) {
+      options.add(aPackage.getQualifiedName());
+    }
+    PsiPackage[] subPackages = aPackage.getSubPackages(globalSearchScope);
+    for (PsiPackage subPackage : subPackages) {
+      collectSubPackages(options, subPackage, globalSearchScope);
+    }
   }
 
   protected static void putDependenciesOnModulePath(PathsList modulePath,
@@ -558,26 +589,14 @@ public abstract class JavaTestFrameworkRunnableState<T extends
               }
               configureRTClasspath(parameters, module);
               parameters.getClassPath().add(JavaSdkUtil.getIdeaRtJarPath());
-              wWriter.println(parameters.getClassPath().getPathsString());
-              wWriter.println(parameters.getModulePath().getPathsString());
-              ParamsGroup paramsGroup = getJigsawOptions(parameters);
-              if (paramsGroup == null) {
-                wWriter.println(0);
-              }
-              else {
-                List<String> parametersList = paramsGroup.getParametersList().getList();
-                wWriter.println(parametersList.size());
-                for (String option : parametersList) {
-                  wWriter.println(option);
-                }
-              }
+              writeClasspath(wWriter, parameters);
             }
             catch (CantRunException e) {
-              wWriter.println(javaParameters.getClassPath().getPathsString());
+              writeClasspath(wWriter, javaParameters);
             }
           }
           else {
-            wWriter.println(classpath);
+            writeClasspath(wWriter, javaParameters);
           }
 
           final List<String> classNames = perModule.get(module);
@@ -587,6 +606,22 @@ public abstract class JavaTestFrameworkRunnableState<T extends
           }
           wWriter.println(filters);
         }
+      }
+    }
+  }
+
+  private static void writeClasspath(PrintWriter wWriter, JavaParameters parameters) {
+    wWriter.println(parameters.getClassPath().getPathsString());
+    wWriter.println(parameters.getModulePath().getPathsString());
+    ParamsGroup paramsGroup = getJigsawOptions(parameters);
+    if (paramsGroup == null) {
+      wWriter.println(0);
+    }
+    else {
+      List<String> parametersList = paramsGroup.getParametersList().getList();
+      wWriter.println(parametersList.size());
+      for (String option : parametersList) {
+        wWriter.println(option);
       }
     }
   }

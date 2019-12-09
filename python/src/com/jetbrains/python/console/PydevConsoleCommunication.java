@@ -2,6 +2,7 @@
 package com.jetbrains.python.console;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ex.ApplicationUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -20,7 +21,6 @@ import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.XCompositeNode;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.intellij.xdebugger.frame.XValueNode;
-import com.jetbrains.python.parsing.console.PythonConsoleData;
 import com.jetbrains.python.console.protocol.*;
 import com.jetbrains.python.console.pydev.AbstractConsoleCommunication;
 import com.jetbrains.python.console.pydev.InterpreterResponse;
@@ -28,6 +28,8 @@ import com.jetbrains.python.console.pydev.PydevCompletionVariant;
 import com.jetbrains.python.debugger.*;
 import com.jetbrains.python.debugger.containerview.PyViewNumericContainerAction;
 import com.jetbrains.python.debugger.pydev.GetVariableCommand;
+import com.jetbrains.python.debugger.settings.PyDebuggerSettings;
+import com.jetbrains.python.parsing.console.PythonConsoleData;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -289,16 +291,27 @@ public abstract class PydevConsoleCommunication extends AbstractConsoleCommunica
   @Override
   @NotNull
   public List<PydevCompletionVariant> getCompletions(String text, String actTok) throws Exception {
-    if (myDebugCommunication != null && myDebugCommunication.isSuspended()) {
-      return myDebugCommunication.getCompletions(text, actTok);
-    }
-
-    if (waitingForInput) {
+    if (waitingForInput || isExecuting()) {
       return Collections.emptyList();
     }
-    List<CompletionOption> fromServer = getPythonConsoleBackendClient().getCompletions(text, actTok);
-
-    return fromServer.stream().map(option -> toPydevCompletionVariant(option)).collect(Collectors.toList());
+    return ApplicationUtil.runWithCheckCanceled(
+      () ->
+      {
+        try {
+          if (myDebugCommunication != null && myDebugCommunication.isSuspended()) {
+            return myDebugCommunication.getCompletions(text, actTok);
+          }
+          else {
+            List<CompletionOption> fromServer = getPythonConsoleBackendClient().getCompletions(text, actTok);
+            return ContainerUtil.map(fromServer, option -> toPydevCompletionVariant(option));
+          }
+        }
+        catch (PythonUnhandledException e) {
+          LOG.warn("Completion error in Python Console: " + e.traceback);
+          return Collections.emptyList();
+        }
+      },
+      ProgressManager.getInstance().getProgressIndicator());
   }
 
   @NotNull
@@ -567,6 +580,11 @@ public abstract class PydevConsoleCommunication extends AbstractConsoleCommunica
   @Override
   public void setCurrentRootNode(@NotNull XCompositeNode node) {
     myCurrentRootNode = node;
+  }
+
+  @Override
+  public boolean isSimplifiedView() {
+    return PyDebuggerSettings.getInstance().isSimplifiedView();
   }
 
   @Override

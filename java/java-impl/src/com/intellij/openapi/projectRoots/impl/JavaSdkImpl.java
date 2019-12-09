@@ -27,6 +27,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.pom.java.LanguageLevel;
+import com.intellij.util.Consumer;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.containers.MultiMap;
@@ -50,7 +51,7 @@ import java.util.stream.Stream;
  * @author Eugene Zhuravlev
  */
 public final class JavaSdkImpl extends JavaSdk {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.projectRoots.impl.JavaSdkImpl");
+  private static final Logger LOG = Logger.getInstance(JavaSdkImpl.class);
 
   public static final DataKey<Boolean> KEY = DataKey.create("JavaSdk");
 

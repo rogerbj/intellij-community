@@ -3,7 +3,7 @@
 package com.intellij.idea
 
 import com.intellij.diagnostic.*
-import com.intellij.diagnostic.StartUpMeasurer.Phases
+import com.intellij.diagnostic.StartUpMeasurer.Activities
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.icons.AllIcons
 import com.intellij.ide.*
@@ -81,7 +81,7 @@ private var wizardStepProvider: CustomizeIDEWizardStepsProvider? = null
 
 private fun executeInitAppInEdt(args: List<String>,
                                 initAppActivity: Activity,
-                                pluginDescriptorFuture: CompletableFuture<List<IdeaPluginDescriptor>>) {
+                                pluginDescriptorFuture: CompletableFuture<List<IdeaPluginDescriptorImpl>>) {
   StartupUtil.patchSystem(LOG)
   val app = runActivity("create app") {
     ApplicationImpl(java.lang.Boolean.getBoolean(PluginManagerCore.IDEA_IS_INTERNAL_PROPERTY), false, Main.isHeadless(), Main.isCommandLine())
@@ -108,11 +108,11 @@ private fun executeInitAppInEdt(args: List<String>,
 }
 
 @ApiStatus.Internal
-fun registerAppComponents(pluginFuture: CompletableFuture<List<IdeaPluginDescriptor>>, app: ApplicationImpl): CompletableFuture<List<IdeaPluginDescriptor>> {
+fun registerAppComponents(pluginFuture: CompletableFuture<List<IdeaPluginDescriptorImpl>>, app: ApplicationImpl): CompletableFuture<List<IdeaPluginDescriptor>> {
   return pluginFuture
     .thenApply {
       runActivity("app component registration", ActivityCategory.MAIN) {
-        app.registerComponents(it)
+        app.registerComponents(it, false)
       }
       it
     }
@@ -150,7 +150,7 @@ private fun startApp(app: ApplicationImpl,
   // preload services only after icon activation
   val preloadSyncServiceFuture = registerRegistryAndInitStoreFuture
     .thenComposeAsync<Void?>(Function {
-      preloadServices(it, app, boundedExecutor, activityPrefix = "")
+      preloadServices(it, app, activityPrefix = "", executor = boundedExecutor)
     }, nonEdtExecutor)
 
   if (!headless) {
@@ -159,14 +159,21 @@ private fun startApp(app: ApplicationImpl,
         MacOSApplicationProvider.initApplication()
       }
 
-      // ensure that TouchBarsManager is loaded before WelcomeFrame/project
-      // do not wait completion - it is thread safe and not required for application start
-      NonUrgentExecutor.getInstance().execute {
+      registerFuture.thenRunAsync(Runnable {
+        // ensure that TouchBarsManager is loaded before WelcomeFrame/project
+        // do not wait completion - it is thread safe and not required for application start
         runActivity("mac touchbar") {
+          if (app.isDisposed) {
+            return@Runnable
+          }
           Foundation.init()
-          TouchBarsManager.isTouchBarAvailable()
+
+          if (app.isDisposed) {
+            return@Runnable
+          }
+          TouchBarsManager.initialize()
         }
-      }
+      }, NonUrgentExecutor.getInstance())
     }
 
     WeakFocusStackManager.getInstance()
@@ -192,7 +199,7 @@ private fun startApp(app: ApplicationImpl,
   CompletableFuture.allOf(registerRegistryAndInitStoreFuture, StartupUtil.getServerFuture())
     .thenCompose {
       // `invokeLater()` is needed to place the app starting code on a freshly minted `IdeEventQueue` instance
-      val placeOnEventQueueActivity = initAppActivity.startChild(Phases.PLACE_ON_EVENT_QUEUE)
+      val placeOnEventQueueActivity = initAppActivity.startChild(Activities.PLACE_ON_EVENT_QUEUE)
 
       val loadComponentInEdtFuture = CompletableFuture.runAsync(Runnable {
         placeOnEventQueueActivity.end()
@@ -253,11 +260,16 @@ fun createExecutorToPreloadServices(): Executor {
 }
 
 @ApiStatus.Internal
-fun preloadServices(plugins: List<IdeaPluginDescriptorImpl>, container: PlatformComponentManagerImpl, executor: Executor = createExecutorToPreloadServices(), activityPrefix: String): CompletableFuture<Void?> {
+@JvmOverloads
+fun preloadServices(plugins: List<IdeaPluginDescriptorImpl>,
+                    container: PlatformComponentManagerImpl,
+                    activityPrefix: String,
+                    onlyIfAwait: Boolean = false,
+                    executor: Executor = createExecutorToPreloadServices()): CompletableFuture<Void?> {
   val syncActivity = StartUpMeasurer.startActivity("${activityPrefix}service sync preloading")
   val asyncActivity = StartUpMeasurer.startActivity(" ${activityPrefix}service async preloading")
 
-  val result = container.preloadServices(plugins, executor)
+  val result = container.preloadServices(plugins, executor, onlyIfAwait)
 
   fun endActivityAndLogError(future: CompletableFuture<Void?>, activity: Activity): CompletableFuture<Void?> {
     return future
@@ -339,8 +351,8 @@ private fun addActivateAndWindowsCliListeners() {
 
 @JvmOverloads
 fun initApplication(rawArgs: List<String>, initUiTask: CompletionStage<*> = CompletableFuture.completedFuture(null)) {
-  val initAppActivity = MainRunner.startupStart.endAndStart(Phases.INIT_APP)
-  val pluginDescriptorsFuture = CompletableFuture<List<IdeaPluginDescriptor>>()
+  val initAppActivity = MainRunner.startupStart.endAndStart(Activities.INIT_APP)
+  val pluginDescriptorsFuture = CompletableFuture<List<IdeaPluginDescriptorImpl>>()
   initUiTask
     .thenRunAsync(Runnable {
       val args = processProgramArguments(rawArgs)
@@ -473,7 +485,6 @@ open class IdeStarter : ApplicationStarter {
   override fun main(args: Array<String>) {
     val frameInitActivity = StartUpMeasurer.startMainActivity("frame initialization")
 
-    val app = ApplicationManager.getApplication()
     // Event queue should not be changed during initialization of application components.
     // It also cannot be changed before initialization of application components because IdeEventQueue uses other
     // application components. So it is proper to perform replacement only here.
@@ -482,14 +493,12 @@ open class IdeStarter : ApplicationStarter {
     }
 
     val commandLineArgs = args.toList()
+    val app = ApplicationManager.getApplication()
 
     val appFrameCreatedActivity = frameInitActivity.startChild("app frame created callback")
     val lifecyclePublisher = app.messageBus.syncPublisher(AppLifecycleListener.TOPIC)
     lifecyclePublisher.appFrameCreated(commandLineArgs)
     appFrameCreatedActivity.end()
-
-    // must be after appFrameCreated because some listeners can mutate state of RecentProjectsManager
-    val willOpenProject = commandLineArgs.isNotEmpty() || filesToLoad.isNotEmpty() || RecentProjectsManager.getInstance().willReopenProjectOnStart()
 
     // temporary check until the JRE implementation has been checked and bundled
     if (java.lang.Boolean.getBoolean("ide.popup.enablePopupType")) {
@@ -497,15 +506,9 @@ open class IdeStarter : ApplicationStarter {
       System.setProperty("jbre.popupwindow.settype", "true")
     }
 
-    val shouldShowWelcomeFrame = !willOpenProject || JetBrainsProtocolHandler.getCommand() != null
-    val doShowWelcomeFrame = if (shouldShowWelcomeFrame) WelcomeFrame.prepareToShow() else null
-    showWizardAndWelcomeFrame(when (doShowWelcomeFrame) {
-      null -> null
-      else -> Runnable {
-        doShowWelcomeFrame.run()
-        lifecyclePublisher.welcomeScreenDisplayed()
-      }
-    })
+    // must be after appFrameCreated because some listeners can mutate state of RecentProjectsManager
+    val willOpenProject = commandLineArgs.isNotEmpty() || filesToLoad.isNotEmpty() || RecentProjectsManager.getInstance().willReopenProjectOnStart()
+    val needToOpenProject = showWizardAndWelcomeFrame(lifecyclePublisher, willOpenProject)
 
     frameInitActivity.end()
 
@@ -513,30 +516,39 @@ open class IdeStarter : ApplicationStarter {
       LifecycleUsageTriggerCollector.onIdeStart()
     }
 
-    TransactionGuard.submitTransaction(app, Runnable {
-      val project = when {
-        filesToLoad.isNotEmpty() -> ProjectUtil.tryOpenFileList(null, filesToLoad, "MacMenu")
-        commandLineArgs.isNotEmpty() -> loadProjectFromExternalCommandLine(commandLineArgs)
-        else -> null
-      }
+    val project = when {
+      !needToOpenProject -> null
+      filesToLoad.isNotEmpty() -> ProjectUtil.tryOpenFileList(null, filesToLoad, "MacMenu")
+      commandLineArgs.isNotEmpty() -> loadProjectFromExternalCommandLine(commandLineArgs)
+      else -> null
+    }
 
-      app.messageBus.syncPublisher(AppLifecycleListener.TOPIC).appStarting(project)
+    app.messageBus.syncPublisher(AppLifecycleListener.TOPIC).appStarting(project)
 
-      if (project == null && RecentProjectsManager.getInstance().willReopenProjectOnStart() && !JetBrainsProtocolHandler.appStartedWithCommand()) {
-        RecentProjectsManager.getInstance().reopenLastProjectsOnStart()
-      }
+    if (needToOpenProject && project == null && RecentProjectsManager.getInstance().willReopenProjectOnStart() && !JetBrainsProtocolHandler.appStartedWithCommand()) {
+      RecentProjectsManager.getInstance().reopenLastProjectsOnStart()
+    }
 
-      EventQueue.invokeLater {
-        reportPluginError()
-      }
-    })
+    app.invokeLater {
+      reportPluginError()
+    }
 
     if (!app.isHeadlessEnvironment) {
       postOpenUiTasks(app)
     }
+
+    StartUpMeasurer.compareAndSetCurrentState(LoadingState.COMPONENTS_LOADED, LoadingState.APP_STARTED)
   }
 
-  private fun showWizardAndWelcomeFrame(showWelcomeFrame: Runnable?) {
+  private fun showWizardAndWelcomeFrame(lifecyclePublisher: AppLifecycleListener, willOpenProject: Boolean): Boolean {
+    val shouldShowWelcomeFrame = !willOpenProject || JetBrainsProtocolHandler.getCommand() != null
+    val showWelcomeFrame = when (val doShowWelcomeFrame = if (shouldShowWelcomeFrame) WelcomeFrame.prepareToShow() else null) {
+      null -> null
+      else -> Runnable {
+        doShowWelcomeFrame.run()
+        lifecyclePublisher.welcomeScreenDisplayed()
+      }
+    }
     wizardStepProvider?.let { wizardStepsProvider ->
       val wizardDialog = object : CustomizeIDEWizardDialog(wizardStepsProvider, null, false, true) {
         override fun doOKAction() {
@@ -545,10 +557,16 @@ open class IdeStarter : ApplicationStarter {
         }
       }
       if (wizardDialog.showIfNeeded()) {
-        return
+        return false
       }
     }
-    showWelcomeFrame?.run()
+
+    if (showWelcomeFrame == null) {
+      return true
+    }
+
+    showWelcomeFrame.run()
+    return false
   }
 
   private fun postOpenUiTasks(app: Application) {
@@ -580,9 +598,6 @@ open class IdeStarter : ApplicationStarter {
       })
       ScreenReader.setActive(generalSettings.isSupportScreenReaders)
     }
-
-    if (SystemInfo.isMac && SystemInfo.isJetBrainsJvm)
-      IdeEventQueue.getInstance().keyEventDispatcher.enableSystemShortcutsChecker()
   }
 }
 
@@ -648,11 +663,11 @@ private fun reportPluginError() {
     }
 
     val disabledPlugins = LinkedHashSet(PluginManagerCore.disabledPlugins())
-    if (PluginManagerCore.ourPlugins2Disable != null && PluginManagerCore.DISABLE == description) {
-      disabledPlugins.addAll(PluginManagerCore.ourPlugins2Disable)
+    if (PluginManagerCore.ourPluginsToDisable != null && PluginManagerCore.DISABLE == description) {
+      disabledPlugins.addAll(PluginManagerCore.ourPluginsToDisable)
     }
-    else if (PluginManagerCore.ourPlugins2Enable != null && PluginManagerCore.ENABLE == description) {
-      disabledPlugins.removeAll(PluginManagerCore.ourPlugins2Enable)
+    else if (PluginManagerCore.ourPluginsToEnable != null && PluginManagerCore.ENABLE == description) {
+      disabledPlugins.removeAll(PluginManagerCore.ourPluginsToEnable)
       PluginManagerMain.notifyPluginsUpdated(null)
     }
 
@@ -661,8 +676,8 @@ private fun reportPluginError() {
     }
     catch (ignore: IOException) { }
 
-    PluginManagerCore.ourPlugins2Enable = null
-    PluginManagerCore.ourPlugins2Disable = null
+    PluginManagerCore.ourPluginsToEnable = null
+    PluginManagerCore.ourPluginsToDisable = null
   })
 
   PluginManagerCore.ourPluginError = null

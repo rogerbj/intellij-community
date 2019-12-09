@@ -4,11 +4,13 @@ package com.intellij.codeInsight.daemon.impl;
 import com.intellij.codeInsight.daemon.impl.analysis.ErrorQuickFixProvider;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightInfoHolder;
 import com.intellij.codeInsight.highlighting.HighlightErrorFilter;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageAnnotators;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.Annotator;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
@@ -33,9 +35,9 @@ import java.util.Map;
  * @author yole
  */
 final class DefaultHighlightVisitor implements HighlightVisitor, DumbAware {
-
   private AnnotationHolderImpl myAnnotationHolder;
-  private final Map<String, List<Annotator>> myAnnotators = FactoryMap.create((key) -> createAnnotators(key));
+  private final Map<String, List<Annotator>> myAnnotators = FactoryMap.create(key -> createAnnotators(key));
+  private static final Logger LOG = Logger.getInstance(DefaultHighlightVisitor.class);
 
   private final Project myProject;
   private final boolean myHighlightErrorElements;
@@ -43,6 +45,7 @@ final class DefaultHighlightVisitor implements HighlightVisitor, DumbAware {
   private final DumbService myDumbService;
   private HighlightInfoHolder myHolder;
   private final boolean myBatchMode;
+  private boolean myDumb;
 
   @SuppressWarnings("UnusedDeclaration")
   DefaultHighlightVisitor(@NotNull Project project) {
@@ -70,16 +73,29 @@ final class DefaultHighlightVisitor implements HighlightVisitor, DumbAware {
                          final boolean updateWholeFile,
                          @NotNull final HighlightInfoHolder holder,
                          @NotNull final Runnable action) {
+    myDumb = myDumbService.isDumb();
     myHolder = holder;
-    myAnnotationHolder = new AnnotationHolderImpl(holder.getAnnotationSession(), myBatchMode);
+    myAnnotationHolder = new AnnotationHolderImpl(holder.getAnnotationSession(), myBatchMode) {
+      @Override
+      void queueToUpdateIncrementally() {
+        if (!isEmpty()) {
+          //noinspection ForLoopReplaceableByForEach
+          for (int i = 0; i < size(); i++) {
+            Annotation annotation = get(i);
+            holder.add(HighlightInfo.fromAnnotation(annotation, myBatchMode));
+          }
+          holder.queueToUpdateIncrementally();
+          clear();
+        }
+      }
+    };
     try {
       action.run();
     }
     finally {
-      myAnnotationHolder.clear();
       myAnnotators.clear();
-      myAnnotationHolder = null;
       myHolder = null;
+      myAnnotationHolder = null;
     }
     return true;
   }
@@ -92,13 +108,6 @@ final class DefaultHighlightVisitor implements HighlightVisitor, DumbAware {
     else {
       if (myRunAnnotators) runAnnotators(element);
     }
-
-    if (myAnnotationHolder.hasAnnotations()) {
-      for (Annotation annotation : myAnnotationHolder) {
-        myHolder.add(HighlightInfo.fromAnnotation(annotation, myBatchMode));
-      }
-      myAnnotationHolder.clear();
-    }
   }
 
   @SuppressWarnings("CloneDoesntCallSuperClone")
@@ -108,24 +117,21 @@ final class DefaultHighlightVisitor implements HighlightVisitor, DumbAware {
     return new DefaultHighlightVisitor(myProject, myHighlightErrorElements, myRunAnnotators, myBatchMode);
   }
 
-  private void runAnnotators(PsiElement element) {
+  private void runAnnotators(@NotNull PsiElement element) {
     List<Annotator> annotators = myAnnotators.get(element.getLanguage().getID());
-    if (annotators.isEmpty()) {
-      return;
-    }
-
-    final boolean dumb = myDumbService.isDumb();
-
-    //noinspection ForLoopReplaceableByForEach
-    for (int i = 0; i < annotators.size(); i++) {
-      Annotator annotator = annotators.get(i);
-      if (dumb && !DumbService.isDumbAware(annotator)) {
-        continue;
+    if (!annotators.isEmpty()) {
+      AnnotationHolderImpl holder = myAnnotationHolder;
+      holder.myCurrentElement = element;
+      for (Annotator annotator : annotators) {
+        if (!myDumb || DumbService.isDumbAware(annotator)) {
+          ProgressManager.checkCanceled();
+          annotator.annotate(element, holder);
+          // assume that annotator is done messing with just created annotations after its annotate() method completed
+          // and we can start applying them incrementally at last
+          // (but not sooner, thanks to awfully racey Annotation.setXXX() API)
+          holder.queueToUpdateIncrementally();
+        }
       }
-
-      ProgressManager.checkCanceled();
-
-      annotator.annotate(element, myAnnotationHolder);
     }
   }
 
@@ -184,11 +190,20 @@ final class DefaultHighlightVisitor implements HighlightVisitor, DumbAware {
   private static List<Annotator> cloneTemplates(@NotNull Collection<? extends Annotator> templates) {
     List<Annotator> result = new ArrayList<>(templates.size());
     for (Annotator template : templates) {
-      result.add(ReflectionUtil.newInstance(template.getClass()));
+      Annotator annotator;
+      try {
+        annotator = ReflectionUtil.newInstance(template.getClass());
+      }
+      catch (Exception e) {
+        LOG.error(PluginException.createByClass(e, template.getClass()));
+        continue;
+      }
+      result.add(annotator);
     }
     return result;
   }
 
+  @NotNull
   private static List<Annotator> createAnnotators(@NotNull String languageId) {
     Language language = Language.findLanguageByID(languageId);
     if (language == null) {

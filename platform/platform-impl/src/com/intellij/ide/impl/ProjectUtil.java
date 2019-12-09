@@ -35,6 +35,7 @@ import com.intellij.util.PathUtil;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.io.PathKt;
+import com.intellij.util.ui.FocusUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -87,6 +88,17 @@ public class ProjectUtil {
     RecentProjectsManager.getInstance().setLastProjectCreationLocation(PathUtil.toSystemIndependentName(path));
   }
 
+  public static void closePreviousProject(Project projectToClose) {
+    Project[] openProjects = getOpenProjects();
+    if (openProjects.length > 0) {
+      int exitCode = confirmOpenNewProject(true);
+      if (exitCode == GeneralSettings.OPEN_PROJECT_SAME_WINDOW) {
+        Project project = projectToClose != null ? projectToClose : openProjects[openProjects.length - 1];
+        closeAndDispose(project);
+      }
+    }
+  }
+
   public static boolean closeAndDispose(@NotNull Project project) {
     return ProjectManagerEx.getInstanceEx().closeAndDispose(project);
   }
@@ -131,7 +143,7 @@ public class ProjectUtil {
     }
 
     if (isValidProjectPath(file)) {
-      return PlatformProjectOpenProcessor.openExistingProject(file, file, options, null);
+      return PlatformProjectOpenProcessor.openExistingProject(file, file, options);
     }
 
     if (options.checkDirectoryForFileBasedProjects && Files.isDirectory(file)) {
@@ -214,7 +226,7 @@ public class ProjectUtil {
     }
 
     try {
-      return PlatformProjectOpenProcessor.openExistingProject(file, file, new OpenProjectTask(forceOpenInNewFrame, projectToClose), null);
+      return PlatformProjectOpenProcessor.openExistingProject(file, file, new OpenProjectTask(forceOpenInNewFrame, projectToClose));
     }
     catch (Exception e) {
       Messages.showMessageDialog(IdeBundle.message("error.cannot.load.project", e.getMessage()),
@@ -357,15 +369,23 @@ public class ProjectUtil {
   public static void focusProjectWindow(final Project p, boolean executeIfAppInactive) {
     JFrame f = WindowManager.getInstance().getFrame(p);
     if (f != null) {
+      Component mostRecentFocusOwner = f.getMostRecentFocusOwner();
       if (executeIfAppInactive) {
         AppIcon.getInstance().requestFocus((IdeFrame)WindowManager.getInstance().getFrame(p));
         f.toFront();
         if (!SystemInfo.isMac && !f.isAutoRequestFocus()) {
-          IdeFocusManager.getInstance(p).requestFocus(f.getMostRecentFocusOwner(), true);
+          IdeFocusManager.getInstance(p).requestFocus(mostRecentFocusOwner, true);
         }
       }
       else {
-        IdeFocusManager.getInstance(p).requestFocusInProject(f.getMostRecentFocusOwner(), p);
+        if (mostRecentFocusOwner != null) {
+          IdeFocusManager.getInstance(p).requestFocusInProject(mostRecentFocusOwner, p);
+        } else {
+          Component defaultFocusComponentInPanel = FocusUtil.getDefaultComponentInPanel(f.getFocusCycleRootAncestor());
+          if (defaultFocusComponentInPanel != null) {
+            IdeFocusManager.getInstance(p).requestFocusInProject(defaultFocusComponentInPanel, p);
+          }
+        }
       }
     }
   }

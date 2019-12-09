@@ -24,7 +24,8 @@ Includes the following features:</p>
     <extensionPoint qualifiedName="org.intellij.markdown.html.panel.provider"
                     interface="org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanelProvider" />
     <extensionPoint qualifiedName="org.intellij.markdown.fenceLanguageProvider"
-                    interface="org.intellij.plugins.markdown.injection.CodeFenceLanguageProvider" />
+                    interface="org.intellij.plugins.markdown.injection.CodeFenceLanguageProvider"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="org.intellij.markdown.codeFencePluginGeneratingProvider"
                     interface="org.intellij.plugins.markdown.extensions.MarkdownCodeFencePluginGeneratingProvider" />
   </extensionPoints>
@@ -102,6 +103,7 @@ Includes the following features:</p>
 
   <extensions defaultExtensionNs="org.intellij.markdown">
     <html.panel.provider implementation="org.intellij.plugins.markdown.ui.preview.javafx.JavaFxHtmlPanelProvider" />
+    <html.panel.provider implementation="org.intellij.plugins.markdown.ui.preview.jcef.JCEFHtmlPanelProvider" />
     <fenceLanguageProvider implementation="org.intellij.plugins.markdown.extensions.plantuml.PlantUMLCodeFenceLanguageProvider"/>
     <codeFencePluginGeneratingProvider implementation="org.intellij.plugins.markdown.extensions.plantuml.PlantUMLProvider"/>
   </extensions>

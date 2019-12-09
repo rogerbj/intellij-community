@@ -6,6 +6,8 @@ import com.intellij.lang.ASTNode;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.html.HtmlTag;
+import com.intellij.psi.impl.source.html.dtd.HtmlNSDescriptorImpl;
 import com.intellij.psi.impl.source.xml.SchemaPrefix;
 import com.intellij.psi.impl.source.xml.TagNameReference;
 import com.intellij.psi.search.LocalSearchScope;
@@ -18,7 +20,6 @@ import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.xml.util.XmlUtil;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -127,6 +128,14 @@ public abstract class XmlExtension {
     return element.getNSDescriptor(namespace, strict);
   }
 
+  @NotNull
+  public XmlNSDescriptor wrapNSDescriptor(@NotNull XmlTag element, @NotNull XmlNSDescriptor descriptor) {
+    if (element instanceof HtmlTag && !(descriptor instanceof HtmlNSDescriptorImpl)) {
+      return new HtmlNSDescriptorImpl(descriptor);
+    }
+    return descriptor;
+  }
+
   @Nullable
   public XmlTag getParentTagForNamespace(XmlTag tag, XmlNSDescriptor namespace) {
     return tag.getParentTag();
@@ -156,16 +165,7 @@ public abstract class XmlExtension {
   public boolean shouldBeInserted(final XmlAttributeDescriptor descriptor) {
     return descriptor.isRequired();
   }
-
-  @SuppressWarnings("unused")
-  @ApiStatus.ScheduledForRemoval(inVersion = "2019.3")
-  @Deprecated
-  public AttributeValuePresentation getAttributeValuePresentation(@Nullable XmlAttributeDescriptor descriptor,
-                                                                  @NotNull String defaultAttributeQuote,
-                                                                  @NotNull PsiElement context) { 
-    return getAttributeValuePresentation(null, "", defaultAttributeQuote);
-  }
-
+  
   @NotNull
   public AttributeValuePresentation getAttributeValuePresentation(@Nullable XmlTag tag,
                                                                   @NotNull String attributeName,

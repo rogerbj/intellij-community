@@ -20,13 +20,10 @@ import com.intellij.openapi.progress.PerformInBackgroundOption;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.TaskInfo;
 import com.intellij.openapi.progress.util.ProgressWindow;
-import com.intellij.openapi.project.DumbModeAction;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.ex.StatusBarEx;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,21 +35,9 @@ public class BackgroundableProcessIndicator extends ProgressWindow {
   private TaskInfo myInfo;
 
   private boolean myDisposed;
-  private DumbModeAction myDumbModeAction = DumbModeAction.NOTHING;
 
   public BackgroundableProcessIndicator(@NotNull Task.Backgroundable task) {
     this(task.getProject(), task, task);
-
-    myDumbModeAction = task.getDumbModeAction();
-    if (myDumbModeAction == DumbModeAction.CANCEL) {
-      task.getProject().getMessageBus().connect(this).subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
-
-        @Override
-        public void enteredDumbMode() {
-          cancel();
-        }
-      });
-    }
   }
 
   public BackgroundableProcessIndicator(@Nullable final Project project, @NotNull TaskInfo info, @NotNull PerformInBackgroundOption option) {
@@ -103,15 +88,6 @@ public class BackgroundableProcessIndicator extends ProgressWindow {
         return cancellable;
       }
     }, option);
-  }
-
-  /**
-   * to remove in IDEA 16
-   */
-  @ApiStatus.ScheduledForRemoval(inVersion = "2016")
-  @Deprecated
-  public DumbModeAction getDumbModeAction() {
-    return myDumbModeAction;
   }
 
   @Override

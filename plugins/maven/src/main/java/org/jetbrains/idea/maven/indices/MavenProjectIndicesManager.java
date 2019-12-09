@@ -3,18 +3,23 @@ package org.jetbrains.idea.maven.indices;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Consumer;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.model.MavenRemoteRepository;
+import org.jetbrains.idea.maven.onlinecompletion.DependencyCompletionProviderFactory;
 import org.jetbrains.idea.maven.onlinecompletion.DependencySearchService;
 import org.jetbrains.idea.maven.onlinecompletion.OfflineSearchService;
 import org.jetbrains.idea.maven.onlinecompletion.model.MavenDependencyCompletionItem;
@@ -28,7 +33,10 @@ import org.jetbrains.idea.maven.utils.MavenMergingUpdateQueue;
 import org.jetbrains.idea.maven.utils.MavenSimpleProjectComponent;
 
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public final class MavenProjectIndicesManager extends MavenSimpleProjectComponent {
@@ -49,7 +57,9 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
     myUpdateQueue = new MavenMergingUpdateQueue(getClass().getSimpleName(), 1000, true, project);
     myDependencySearchService = new DependencySearchService(project);
 
-    if (!isNormalProject()) return;
+    if (!isNormalProject()) {
+      return;
+    }
     doInit();
   }
 
@@ -57,6 +67,31 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       scheduleUpdateIndicesList();
     }
+
+    MavenRepositoryProvider.EP_NAME.addExtensionPointListener(new ExtensionPointListener<MavenRepositoryProvider>() {
+      @Override
+      public void extensionAdded(@NotNull MavenRepositoryProvider extension, @NotNull PluginDescriptor pluginDescriptor) {
+        scheduleUpdateIndicesList();
+      }
+
+      @Override
+      public void extensionRemoved(@NotNull MavenRepositoryProvider extension, @NotNull PluginDescriptor pluginDescriptor) {
+        scheduleUpdateIndicesList();
+      }
+    }, myProject);
+
+    DependencyCompletionProviderFactory.EP_NAME.addExtensionPointListener(
+      new ExtensionPointListener<DependencyCompletionProviderFactory>() {
+        @Override
+        public void extensionAdded(@NotNull DependencyCompletionProviderFactory extension, @NotNull PluginDescriptor pluginDescriptor) {
+          scheduleUpdateIndicesList();
+        }
+
+        @Override
+        public void extensionRemoved(@NotNull DependencyCompletionProviderFactory extension, @NotNull PluginDescriptor pluginDescriptor) {
+          scheduleUpdateIndicesList();
+        }
+      }, myProject);
 
     getMavenProjectManager().addManagerListener(new MavenProjectsManager.Listener() {
       @Override
@@ -83,31 +118,41 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
     scheduleUpdateIndicesList(null);
   }
 
-  public void scheduleUpdateIndicesList(@Nullable final Consumer<? super List<MavenIndex>> consumer) {
-    myUpdateQueue.queue(new Update(this) {
+  public void scheduleUpdateIndicesList(@Nullable Consumer<? super List<MavenIndex>> consumer) {
+    Update update = new Update(this) {
       @Override
       public void run() {
-
-        Set<Pair<String, String>> remoteRepositoriesIdsAndUrls =
-          ReadAction.compute(() -> myProject.isDisposed() ? null : collectRemoteRepositoriesIdsAndUrls());
+        Set<Pair<String, String>> remoteRepositoriesIdsAndUrls = ReadAction.compute(() -> {
+          return myProject.isDisposed() ? null : collectRemoteRepositoriesIdsAndUrls();
+        });
         File localRepository = ReadAction.compute(() -> myProject.isDisposed() ? null : getLocalRepository());
-        if (remoteRepositoriesIdsAndUrls == null || localRepository == null) return;
+        if (remoteRepositoriesIdsAndUrls == null || localRepository == null) {
+          return;
+        }
 
-
+        List<MavenIndex> newProjectIndices;
+        MavenIndicesManager mavenIndicesManager = MavenIndicesManager.getInstance();
         if (remoteRepositoriesIdsAndUrls.isEmpty()) {
-          myProjectIndices.clear();
+          newProjectIndices = new ArrayList<>();
         }
         else {
-          myProjectIndices = MavenIndicesManager.getInstance().ensureIndicesExist(myProject, remoteRepositoriesIdsAndUrls);
+          newProjectIndices = mavenIndicesManager.ensureIndicesExist(remoteRepositoriesIdsAndUrls);
         }
-        myProjectIndices.add(MavenIndicesManager.getInstance().createIndexForLocalRepo(myProject, localRepository));
+        ContainerUtil.addIfNotNull(newProjectIndices, mavenIndicesManager.createIndexForLocalRepo(myProject, localRepository));
         myDependencySearchService.reload();
 
+        myProjectIndices = newProjectIndices;
         if (consumer != null) {
           consumer.consume(myProjectIndices);
         }
       }
-    });
+    };
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      update.run();
+    }
+    else {
+      myUpdateQueue.queue(update);
+    }
   }
 
   private File getLocalRepository() {
@@ -160,6 +205,13 @@ public final class MavenProjectIndicesManager extends MavenSimpleProjectComponen
 
   public synchronized DependencySearchService getDependencySearchService() {
     return myDependencySearchService;
+  }
+
+  @ApiStatus.Experimental
+  public boolean hasNonScannedRemotes() {
+    return myProjectIndices.stream()
+      .filter(i -> i.getKind() == MavenSearchIndex.Kind.REMOTE)
+      .anyMatch(i -> !"central".equals(i.getRepositoryId()));
   }
 
   /**

@@ -154,10 +154,6 @@ go('a', 'c', 1, 2, 3)
     doTest()
   }
 
-  void testLiteralConstructorUsages() {
-    doTest()
-  }
-
   void testSpreadArguments() {
     doTest()
   }
@@ -189,7 +185,7 @@ def foo1(Object a) { }
 def bar1(def b) { foo1(b) }
 
 def foo2(String a) { }
-def bar2(def b) { foo2<weak_warning descr="Cannot infer argument types">(b)</weak_warning> }
+def bar2(def b) { foo2(b) }
 ''')
   }
 

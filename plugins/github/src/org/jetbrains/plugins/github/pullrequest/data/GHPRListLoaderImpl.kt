@@ -94,6 +94,8 @@ internal class GHPRListLoaderImpl(progressManager: ProgressManager,
     }
   }
 
+  override fun findData(number: Long) = listModel.items.find { it.number == number }
+
   private fun updateData(pullRequest: GHPullRequestShort) {
     val index = listModel.items.indexOfFirst { it.id == pullRequest.id }
     listModel.setElementAt(pullRequest, index)
@@ -126,7 +128,7 @@ internal class GHPRListLoaderImpl(progressManager: ProgressManager,
                                                                          catch (e: Exception) {
                                                                            //ignore
                                                                          }
-                                                                       }, 0, 1, TimeUnit.MINUTES)
+                                                                       }, 30, 30, TimeUnit.SECONDS)
       }
     }
 

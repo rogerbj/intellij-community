@@ -9,6 +9,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.codeStyle.JavaCodeStyleManager
 import com.intellij.psi.codeStyle.VariableKind
+import com.intellij.psi.impl.PsiDiamondTypeUtil
 import com.intellij.psi.impl.source.tree.CompositeElement
 import com.intellij.psi.util.PsiTypesUtil
 import com.intellij.psi.util.PsiUtil
@@ -20,11 +21,33 @@ import org.jetbrains.uast.generate.UastCodeGenerationPlugin
 import org.jetbrains.uast.generate.UastElementFactory
 import org.jetbrains.uast.java.*
 
-class JavaUastCodeGenerationPlugin : UastCodeGenerationPlugin {
+internal class JavaUastCodeGenerationPlugin : UastCodeGenerationPlugin {
   override fun getElementFactory(project: Project): UastElementFactory = JavaUastElementFactory(project)
 
   override val language: Language
     get() = JavaLanguage.INSTANCE
+
+  private fun cleanupMethodCall(methodCall: PsiMethodCallExpression): PsiMethodCallExpression {
+    if (methodCall.typeArguments.isNotEmpty()) {
+      val resolved = methodCall.resolveMethod() ?: return methodCall
+      if (methodCall.typeArguments.size == resolved.typeParameters.size &&
+          PsiDiamondTypeUtil.areTypeArgumentsRedundant(
+            methodCall.typeArguments,
+            methodCall,
+            false,
+            resolved,
+            resolved.typeParameters
+          )
+      ) {
+        val emptyTypeArgumentsMethodCall = JavaPsiFacade.getElementFactory(methodCall.project)
+                                             .createExpressionFromText("foo()", null) as PsiMethodCallExpression
+
+        methodCall.typeArgumentList.replace(emptyTypeArgumentsMethodCall.typeArgumentList)
+      }
+    }
+
+    return methodCall
+  }
 
   private fun adjustChainStyleToMethodCalls(oldPsi: PsiElement, newPsi: PsiElement) {
     if (oldPsi is PsiMethodCallExpression && newPsi is PsiMethodCallExpression &&
@@ -56,6 +79,7 @@ class JavaUastCodeGenerationPlugin : UastCodeGenerationPlugin {
     }
     return when (val replaced = updOldPsi.replace(updNewPsi)) {
       is PsiExpressionStatement -> replaced.expression.toUElementOfExpectedTypes(elementType)
+      is PsiMethodCallExpression -> cleanupMethodCall(replaced).toUElementOfExpectedTypes(elementType)
       else -> replaced.toUElementOfExpectedTypes(elementType)
     }
   }
@@ -93,11 +117,13 @@ class JavaUastElementFactory(private val project: Project) : UastElementFactory 
                                     methodName: String,
                                     parameters: List<UExpression>,
                                     expectedReturnType: PsiType?,
-                                    kind: UastCallKind): UCallExpression? {
+                                    kind: UastCallKind,
+                                    context: PsiElement?): UCallExpression? {
     if (kind != UastCallKind.METHOD_CALL) return null
 
-    val methodCall = psiFactory.createExpressionFromText(if (receiver != null) "a.b()" else "a()", null) as? PsiMethodCallExpression
-                     ?: return null
+    val methodCall = psiFactory.createExpressionFromText(
+      if (receiver != null) "a.b()" else "a()", context
+    ) as? PsiMethodCallExpression ?: return null
 
     val methodIdentifier = psiFactory.createIdentifier(methodName)
 
@@ -312,7 +338,8 @@ class JavaUastElementFactory(private val project: Project) : UastElementFactory 
     block
       .takeIf { block.statementCount == 1 }
       ?.let { block.statements[0] as? PsiReturnStatement }
-      ?.let { it.returnValue } ?: block
+      ?.returnValue
+    ?: block
 
   override fun createParenthesizedExpression(expression: UExpression): UParenthesizedExpression? {
     val parenthesizedExpression = psiFactory.createExpressionFromText("()", null) as? PsiParenthesizedExpression ?: return null

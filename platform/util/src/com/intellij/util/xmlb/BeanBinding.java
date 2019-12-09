@@ -7,7 +7,7 @@ import com.intellij.serialization.PropertyCollector;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.MultiMap;
+import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.*;
 import gnu.trove.TObjectFloatHashMap;
@@ -23,7 +23,7 @@ import java.lang.reflect.Type;
 import java.util.*;
 
 public class BeanBinding extends NotNullDeserializeBinding {
-  private static final PropertyCollector PROPERTY_COLLECTOR = new XmlSerializerPropertyCollector();
+  private static final XmlSerializerPropertyCollector PROPERTY_COLLECTOR = new XmlSerializerPropertyCollector();
 
   private final String myTagName;
   @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized")
@@ -197,7 +197,7 @@ public class BeanBinding extends NotNullDeserializeBinding {
       }
     }
 
-    MultiMap<NestedBinding, Element> data = null;
+    LinkedHashMap<NestedBinding, List<Element>> data = null;
     nextNode:
     for (Content content : element.getContent()) {
       if (content instanceof Comment) {
@@ -216,9 +216,9 @@ public class BeanBinding extends NotNullDeserializeBinding {
         if (binding.isBoundTo(child)) {
           if (binding instanceof MultiNodeBinding && ((MultiNodeBinding)binding).isMulti()) {
             if (data == null) {
-              data = MultiMap.createLinked();
+              data = new LinkedHashMap<>();
             }
-            data.putValue(binding, child);
+            ContainerUtilRt.putValue(binding, child, data);
           }
           else {
             if (accessorNameTracker != null) {
@@ -242,7 +242,7 @@ public class BeanBinding extends NotNullDeserializeBinding {
         if (accessorNameTracker != null) {
           accessorNameTracker.add(binding.getAccessor().getName());
         }
-        ((MultiNodeBinding)binding).deserializeList(result, (List<Element>)data.get(binding));
+        ((MultiNodeBinding)binding).deserializeList(result, data.get(binding));
       }
     }
   }
@@ -331,6 +331,12 @@ public class BeanBinding extends NotNullDeserializeBinding {
              element.isAnnotationPresent(XCollection.class) ||
              element.isAnnotationPresent(AbstractCollection.class);
     }
+
+    @Override
+    public void clearSerializationCaches() {
+      super.clearSerializationCaches();
+      accessorCache.clear();
+    }
   }
 
   public String toString() {
@@ -402,5 +408,9 @@ public class BeanBinding extends NotNullDeserializeBinding {
       return new AttributeBinding(accessor, null);
     }
     return new OptionTagBinding(accessor, optionTag);
+  }
+
+  public static void clearSerializationCaches() {
+    PROPERTY_COLLECTOR.clearSerializationCaches();
   }
 }

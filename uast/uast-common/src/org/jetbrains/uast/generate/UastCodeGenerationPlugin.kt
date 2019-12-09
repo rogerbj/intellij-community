@@ -4,6 +4,7 @@ package org.jetbrains.uast.generate
 import com.intellij.lang.Language
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.uast.*
@@ -31,7 +32,7 @@ interface UastElementFactory {
 
   /**
    * Create binary expression, and possibly remove unnecessary parenthesis, so it could become [UPolyadicExpression], e.g
-   * [createFlatBinaryExpression](1 + 2, 2, +) could produce 1 + 2 + 2, which is polyadic expression
+   * [createFlatBinaryExpression] (1 + 2, 2, +) could produce 1 + 2 + 2, which is polyadic expression
    */
   @JvmDefault
   fun createFlatBinaryExpression(leftOperand: UExpression, rightOperand: UExpression, operator: UastBinaryOperator): UPolyadicExpression? =
@@ -56,11 +57,15 @@ interface UastElementFactory {
 
   fun createDeclarationExpression(declarations: List<UDeclaration>): UDeclarationsExpression?
 
+  /**
+   * For providing additional information pass it via [context] only, otherwise it can be lost
+   */
   fun createCallExpression(receiver: UExpression?,
                            methodName: String,
                            parameters: List<UExpression>,
                            expectedReturnType: PsiType?,
-                           kind: UastCallKind): UCallExpression?
+                           kind: UastCallKind,
+                           context: PsiElement? = null): UCallExpression?
 
   fun createIfExpression(condition: UExpression, thenBranch: UExpression, elseBranch: UExpression? = null): UIfExpression?
 

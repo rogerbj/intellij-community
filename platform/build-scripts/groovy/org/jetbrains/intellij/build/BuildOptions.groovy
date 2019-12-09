@@ -65,6 +65,12 @@ class BuildOptions {
   static final String THIRD_PARTY_LIBRARIES_LIST_STEP = "third_party_libraries"
   /** Build community distributives */
   static final String COMMUNITY_DIST_STEP = "community_dist"
+  /**
+   * Publish artifacts to TeamCity storage while the build is still running, immediately after the artifacts are built.
+   * Comprises many small publication steps.
+   * Note: skipping this step won't affect publication of 'Artifact paths' in TeamCity build settings and vice versa
+   */
+  static final String TEAMCITY_ARTIFACTS_PUBLICATION = "teamcity_artifacts_publication"
 
   /**
    * Pass 'true' to this system property to produce an additional .dmg archive for macOS without bundled JRE.
@@ -91,7 +97,7 @@ class BuildOptions {
 
   /**
    * Path to a metadata file containing urls with compiled classes of the project modules inside.
-   * Metadata is a {@linkplain org.jetbrains.intellij.build.impl.CompilationPartsMetadata} serialized into json format
+   * Metadata is a {@linkplain org.jetbrains.intellij.build.impl.compilation.CompilationPartsMetadata} serialized into json format
    */
   String pathToCompiledClassesArchivesMetadata = System.getProperty("intellij.build.compiled.classes.archives.metadata")
 

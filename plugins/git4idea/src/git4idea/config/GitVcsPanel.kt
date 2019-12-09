@@ -216,17 +216,15 @@ internal class GitVcsPanel(private val project: Project,
           EnumComboBoxModel(UpdateMethod::class.java),
           { projectSettings.updateMethod },
           { projectSettings.updateMethod = it!! },
-          renderer = SimpleListCellRenderer.create<UpdateMethod>("") { value ->
-            value.name.replace('_', ' ').toLowerCase().capitalize()
-          }
+          renderer = SimpleListCellRenderer.create<UpdateMethod>("", UpdateMethod::getName)
         )
       }
     }
     row {
       cell {
         label("Clean working tree using:")
-        buttonGroup({ projectSettings.updateChangesPolicy() }, { projectSettings.setUpdateChangesPolicy(it) }) {
-          GitVcsSettings.UpdateChangesPolicy.values().forEach { saveSetting ->
+        buttonGroup({ projectSettings.saveChangesPolicy }, { projectSettings.saveChangesPolicy = it }) {
+          GitVcsSettings.SaveChangesPolicy.values().forEach { saveSetting ->
             radioButton(saveSetting.name.toLowerCase().capitalize(), saveSetting)
           }
         }

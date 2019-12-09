@@ -2,8 +2,10 @@
 package org.jetbrains.intellij.build
 
 import groovy.transform.CompileStatic
+
 /**
- * @author nik
+ * Describes distribution of an IntelliJ-based IDE. Override this class and call {@link BuildTasks#buildProduct} from a build script to build
+ * distribution of your product.
  */
 @CompileStatic
 abstract class ProductProperties {
@@ -14,9 +16,15 @@ abstract class ProductProperties {
 
   /**
    * @deprecated specify product code in 'number' attribute in 'build' tag in *ApplicationInfo.xml file instead (see its schema for details);
-   * if you need to get the product code in the build scripts, use {@link ApplicationInfoProperties#productCode} instead
+   * if you need to get the product code in the build scripts, use {@link ApplicationInfoProperties#productCode} instead;
+   * if you need to override product code value from *ApplicationInfo.xml - {@link org.jetbrains.intellij.build.ProductProperties#customProductCode} can be used.
    */
   String productCode
+
+  /**
+   * This value overrides specified product code in 'number' attribute in 'build' tag in *ApplicationInfo.xml file
+   */
+  String customProductCode
 
   /**
    * Value of 'idea.platform.prefix' property. It's also used as prefix for 'ApplicationInfo.xml' product descriptor.

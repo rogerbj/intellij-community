@@ -4,35 +4,28 @@ package org.jetbrains.intellij.build.impl
 
 import org.jetbrains.intellij.build.BuildContext
 
-class KeymapPluginsBuilder {
-  final BuildContext buildContext
-  final String targetDir
+final class KeymapPluginsBuilder {
 
-  KeymapPluginsBuilder(BuildContext buildContext, String targetDir) {
-    this.targetDir = targetDir
-    this.buildContext = buildContext
+  static List<PluginRepositorySpec> buildKeymapPlugins(BuildContext buildContext, String targetDir) {
+    return [
+      keymapPlugin(["Mac OS X", "Mac OS X 10.5+"], buildContext, targetDir),
+      keymapPlugin(["Default for GNOME"], buildContext, targetDir),
+      keymapPlugin(["Default for KDE"], buildContext, targetDir),
+      keymapPlugin(["Default for XWin"], buildContext, targetDir),
+      keymapPlugin(["Eclipse", "Eclipse (Mac OS X)"], buildContext, targetDir),
+      keymapPlugin(["Emacs"], buildContext, targetDir),
+      keymapPlugin(["NetBeans 6.5"], buildContext, targetDir),
+      keymapPlugin(["ReSharper", "ReSharper OSX"], buildContext, targetDir),
+      keymapPlugin(["Sublime Text", "Sublime Text (Mac OS X)"], buildContext, targetDir),
+      keymapPlugin(["Visual Studio"], buildContext, targetDir),
+      keymapPlugin(["Xcode"], buildContext, targetDir)
+    ]
   }
 
-  static void buildKeymapPlugins(BuildContext buildContext, String targetDir) {
-    def builder = new KeymapPluginsBuilder(buildContext, targetDir)
-    [["Default for GNOME"],
-     ["Default for KDE"],
-     ["Default for XWin"],
-     ["Eclipse", "Eclipse (Mac OS X)"],
-     ["Emacs"],
-     ["NetBeans 6.5"],
-     ["ReSharper", "ReSharper OSX"],
-     ["Sublime Text", "Sublime Text (Mac OS X)"],
-     ["Visual Studio"],
-     ["Xcode"]].forEach {
-      builder.keymapPlugin(targetDir, it)
-    }
-  }
-
-  void keymapPlugin(String targetDir, List<String> keymaps) {
+  static PluginRepositorySpec keymapPlugin(List<String> keymaps, BuildContext buildContext, String targetDir) {
     def keymapPath = "$buildContext.paths.communityHome/platform/platform-resources/src/keymaps"
-    def longName = keymaps[0].replaceAll("Default for ", "")
-    def shortName = keymaps[0].replaceAll("[.0-9 ]|Default for ", "")
+    def longName = keymaps[0].replace("Mac OS X", "macOS").replaceAll("Default for |[.0-9]", "").trim()
+    def shortName = longName.replaceAll(" ", "")
     def tempDir = new File(buildContext.paths.temp, "keymap-plugins/${shortName.toLowerCase()}")
     new File(tempDir, "META-INF").mkdirs()
     new File(tempDir, "META-INF/plugin.xml").text = keymapPluginXml(buildContext.buildNumber, shortName.toLowerCase(), longName, keymaps)
@@ -63,14 +56,16 @@ class KeymapPluginsBuilder {
       }
     }
     buildContext.notifyArtifactBuilt("$targetDir/${shortName}Keymap.zip")
+    return new PluginRepositorySpec(pluginZip: "$targetDir/${shortName}Keymap.zip",
+                                    pluginXml: "$tempDir/META-INF/plugin.xml")
   }
 
   static String keymapPluginXml(String version, String id, String name, List<String> keymaps) {
     return """<idea-plugin>
   <name>$name Keymap</name>
   <id>com.intellij.plugins.${id}keymap</id>
-  <idea-version since-build="${version.substring(0, version.lastIndexOf('.'))}"/>
   <version>$version</version>
+  <idea-version since-build="${version.substring(0, version.lastIndexOf('.'))}"/>
   <vendor>JetBrains</vendor>
   <category>Keymap</category>
   <description>

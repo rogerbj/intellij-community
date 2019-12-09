@@ -11,7 +11,6 @@ import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -184,7 +183,6 @@ public class CodeStyleManagerImpl extends CodeStyleManager implements Formatting
     if (ranges.isEmpty()) {
       return;
     }
-    boolean isFullReformat = ranges.isFullReformat(file);
     ApplicationManager.getApplication().assertWriteAccessAllowed();
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
 
@@ -729,13 +727,13 @@ public class CodeStyleManagerImpl extends CodeStyleManager implements Formatting
   }
 
   private static class RangeFormatInfo{
-    private final SmartPsiElementPointer startPointer;
-    private final SmartPsiElementPointer endPointer;
-    private final boolean                fromStart;
-    private final boolean                toEnd;
+    private final SmartPsiElementPointer<?> startPointer;
+    private final SmartPsiElementPointer<?> endPointer;
+    private final boolean                   fromStart;
+    private final boolean                   toEnd;
 
-    RangeFormatInfo(@Nullable SmartPsiElementPointer startPointer,
-                    @Nullable SmartPsiElementPointer endPointer,
+    RangeFormatInfo(@Nullable SmartPsiElementPointer<?> startPointer,
+                    @Nullable SmartPsiElementPointer<?> endPointer,
                     boolean fromStart,
                     boolean toEnd)
     {
@@ -770,7 +768,7 @@ public class CodeStyleManagerImpl extends CodeStyleManager implements Formatting
       int caretOffset = getCaretOffset();
       int lineStartOffset = getLineStartOffsetByTotalOffset(caretOffset);
       int lineEndOffset = getLineEndOffsetByTotalOffset(caretOffset);
-      boolean shouldFixCaretPosition = rangeHasWhiteSpaceSymbolsOnly(myDocument.getCharsSequence(), lineStartOffset, lineEndOffset);
+      boolean shouldFixCaretPosition = CharArrayUtil.isEmptyOrSpaces(myDocument.getCharsSequence(), lineStartOffset, lineEndOffset);
 
       if (shouldFixCaretPosition) {
         initRestoreInfo(caretOffset);
@@ -843,15 +841,6 @@ public class CodeStyleManagerImpl extends CodeStyleManager implements Formatting
       myDocument.replaceString(lineToInsertStartOffset, caretLineOffset, myCaretIndentToRestore);
     }
 
-    private static boolean rangeHasWhiteSpaceSymbolsOnly(CharSequence text, int lineStartOffset, int lineEndOffset) {
-      for (int i = lineStartOffset; i < lineEndOffset; i++) {
-        char c = text.charAt(i);
-        if (c != ' ' && c != '\t' && c != '\n') {
-          return false;
-        }
-      }
-      return true;
-    }
 
     private boolean isVirtualSpaceEnabled() {
       return myEditor.getSettings().isVirtualSpace();
@@ -876,7 +865,7 @@ public class CodeStyleManagerImpl extends CodeStyleManager implements Formatting
     private boolean lineContainsWhiteSpaceSymbolsOnly(int lineNumber) {
       int startOffset = myDocument.getLineStartOffset(lineNumber);
       int endOffset = myDocument.getLineEndOffset(lineNumber);
-      return rangeHasWhiteSpaceSymbolsOnly(myDocument.getCharsSequence(), startOffset, endOffset);
+      return CharArrayUtil.isEmptyOrSpaces(myDocument.getCharsSequence(), startOffset, endOffset);
     }
 
     private int getCurrentCaretLine() {

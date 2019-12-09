@@ -4,7 +4,9 @@ package com.intellij.openapi.vfs.local;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
@@ -17,6 +19,7 @@ import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
 import com.intellij.testFramework.rules.TempDirectory;
@@ -30,6 +33,7 @@ import java.io.*;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
@@ -37,6 +41,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.jar.JarFile;
+import java.util.zip.ZipFile;
 
 import static com.intellij.openapi.util.io.IoTestUtil.assertTimestampsEqual;
 import static com.intellij.testFramework.PlatformTestUtil.assertPathsEqual;
@@ -45,6 +50,7 @@ import static com.intellij.testFramework.UsefulTestCase.assertSameElements;
 import static org.junit.Assert.*;
 
 public class JarFileSystemTest extends BareTestFixtureTestCase {
+  private static final Logger LOG = Logger.getInstance(JarFileSystemTest.class);
   @Rule public TempDirectory tempDir = new TempDirectory();
 
   @Test
@@ -234,6 +240,40 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
   }
 
   @Test
+  public void testCrazyBackSlashesInZipEntriesMustBeTreatedAsRegularDirectorySeparators() {
+    String jarPath = PathManagerEx.getTestDataPath() + "/vfs/log4sql.jar";
+    VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(jarPath);
+    assertNotNull(vFile);
+    VirtualFile manifest = findByPath(jarPath + JarFileSystem.JAR_SEPARATOR + JarFile.MANIFEST_NAME);
+    assertNotNull(manifest);
+
+    VirtualFile jarRoot = JarFileSystem.getInstance().findFileByPath(jarPath + JarFileSystem.JAR_SEPARATOR);
+    assertNotNull(jarRoot);
+    String crazyDir = "src\\core\\log";
+    String crazyEntry = "/log4sql_conf.jsp";
+    if (SystemInfo.isWindows) {
+      assertNotNull(findByPath(jarPath + JarFileSystem.JAR_SEPARATOR + crazyDir.replace('\\', '/') + crazyEntry));
+      assertNull(jarRoot.findChild(crazyDir));
+    }
+    else {
+      assertNull(JarFileSystem.getInstance().findFileByPath(jarPath + JarFileSystem.JAR_SEPARATOR + crazyDir.replace('\\', '/') + crazyEntry));
+      VirtualFile dir = jarRoot.findChild(crazyDir);
+      LOG.debug(jarRoot + " children: " + Arrays.toString(jarRoot.getChildren()));
+      LOG.debug(" exist child: " + ContainerUtil.exists(jarRoot.getChildren(), c->c.getName().equals(crazyDir)));
+      LOG.debug(" persist children: " + Arrays.toString(PersistentFS.getInstance().listAll(jarRoot)));
+
+      try (ZipFile file = new ZipFile(jarPath)) {
+        LOG.debug("Entries: " + ContainerUtil.toList(file.entries()));
+      }
+      catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+      assertNotNull(dir);
+      assertNotNull(dir.findChild(crazyEntry));
+    }
+  }
+
+  @Test
   public void testJarRootForLocalFile() {
     String jarPath = PathManager.getJarPathForClass(Test.class);
 
@@ -278,6 +318,7 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
     }
   }
 
+  @NotNull
   private static VirtualFile findByPath(String path) {
     VirtualFile file = JarFileSystem.getInstance().findFileByPath(path);
     assertNotNull(file);

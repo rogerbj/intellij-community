@@ -10,6 +10,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.progress.util.StandardProgressIndicatorBase;
 import com.intellij.util.Consumer;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author cdr
  */
 public class JobLauncherImpl extends JobLauncher {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.concurrency.JobLauncherImpl");
+  private static final Logger LOG = Logger.getInstance(JobLauncherImpl.class);
   static final int CORES_FORK_THRESHOLD = 1;
 
   @Override
@@ -49,7 +50,15 @@ public class JobLauncherImpl extends JobLauncher {
     List<ApplierCompleter<T>> failedSubTasks = Collections.synchronizedList(new ArrayList<>());
     ApplierCompleter<T> applier = new ApplierCompleter<>(null, runInReadAction, failFastOnAcquireReadAction, wrapper, things, processor, 0, things.size(), failedSubTasks, null);
     try {
-      ForkJoinPool.commonPool().execute(applier);
+      ProgressIndicator existing = pm.getProgressIndicator();
+      if (existing == progress) {
+        // there must be nested invokeConcurrentlies.
+        // In this case, try to avoid placing tasks to the FJP queue because extra applier.get() or pool.invoke() can cause pool over-compensation with too many workers
+        applier.compute();
+      }
+      else {
+        ForkJoinPool.commonPool().execute(applier);
+      }
       // call checkCanceled a bit more often than .invoke()
       while (!applier.isDone()) {
         ProgressManager.checkCanceled();
@@ -76,9 +85,13 @@ public class JobLauncherImpl extends JobLauncher {
       throw e;
     }
     catch (ProcessCanceledException e) {
-      LOG.debug(e);
-      // task1.processor returns false and the task cancels the indicator
-      // then task2 calls checkCancel() and get here
+      // We should distinguish between genuine 'progress' cancellation and optimization when
+      // task1.processor returns false and the task cancels the indicator then task2 calls checkCancel() and get here.
+      // The former requires to re-throw PCE, the latter should just return false.
+      if (progress != null) {
+        progress.checkCanceled();
+      }
+      ProgressManager.checkCanceled();
       return false;
     }
     catch (RuntimeException | Error e) {
@@ -87,7 +100,6 @@ public class JobLauncherImpl extends JobLauncher {
     catch (Throwable e) {
       throw new RuntimeException(e);
     }
-    //assert applier.isDone();
     return applier.completeTaskWhichFailToAcquireReadAction();
   }
 
@@ -182,7 +194,6 @@ public class JobLauncherImpl extends JobLauncher {
     private void submit() {
       ForkJoinPool.commonPool().execute(myForkJoinTask);
     }
-    //////////////// Job
 
     // when canceled in the middle of the execution returns false until finished
     @Override
@@ -217,6 +228,9 @@ public class JobLauncherImpl extends JobLauncher {
             ForkJoinPool.commonPool().awaitQuiescence(millis, TimeUnit.MILLISECONDS);
             if (!isDone()) throw new TimeoutException();
           }
+        }
+        catch (ExecutionException e) {
+          ExceptionUtil.rethrow(e.getCause());
         }
       }
     }

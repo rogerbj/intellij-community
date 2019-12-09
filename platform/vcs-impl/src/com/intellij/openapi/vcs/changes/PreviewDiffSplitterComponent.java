@@ -2,8 +2,8 @@
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.diff.impl.DiffRequestProcessor;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.OnePixelSplitter;
+import com.intellij.util.IJSwingUtilities;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -18,18 +18,13 @@ public class PreviewDiffSplitterComponent extends OnePixelSplitter {
   public PreviewDiffSplitterComponent(@NotNull JComponent firstComponent,
                                       @NotNull DiffPreviewUpdateProcessor processor,
                                       @NotNull String splitterDimensionKey, boolean detailsOn) {
-    super(splitterDimensionKey, 0.5f);
+    super(splitterDimensionKey, 0.3f);
     myProcessor = processor;
     setFirstComponent(firstComponent);
     setDetailsOn(detailsOn);
   }
 
   public void updatePreview(boolean fromModelRefresh) {
-    if (Registry.is("show.log.as.editor.tab") && myProcessor instanceof ChangeViewDiffRequestProcessor && myDetailsOn) {
-      ((ChangeViewDiffRequestProcessor) myProcessor).updatePreview(false, fromModelRefresh);
-      return;
-    }
-
     if (isDetailsOn()) {
       myProcessor.refresh(fromModelRefresh);
     }
@@ -48,12 +43,10 @@ public class PreviewDiffSplitterComponent extends OnePixelSplitter {
   }
 
   private void updateVisibility() {
-    if (Registry.is("show.log.as.editor.tab"))
-      return;
-
     setSecondComponent(myDetailsOn ? myProcessor.getComponent() : null);
     JComponent secondComponent = getSecondComponent();
     if (secondComponent != null) {
+      IJSwingUtilities.updateComponentTreeUI(secondComponent);
       secondComponent.setMinimumSize(emptySize());
     }
     validate();

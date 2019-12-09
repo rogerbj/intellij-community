@@ -30,13 +30,16 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * @author ik, dsl
  */
 public class PsiSubstitutorImpl implements PsiSubstitutor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.PsiSubstitutorImpl");
+  private static final Logger LOG = Logger.getInstance(PsiSubstitutorImpl.class);
 
   private static final TObjectHashingStrategy<PsiTypeParameter> PSI_EQUIVALENCE = new TObjectHashingStrategy<PsiTypeParameter>() {
     @Override
@@ -329,7 +332,7 @@ public class PsiSubstitutorImpl implements PsiSubstitutor {
   @NotNull
   @Override
   public PsiSubstitutor putAll(@NotNull PsiSubstitutor another) {
-    if (another instanceof EmptySubstitutorImpl) {
+    if (another instanceof EmptySubstitutor) {
       return this;
     }
     final PsiSubstitutorImpl anotherImpl = (PsiSubstitutorImpl)another;
@@ -384,11 +387,11 @@ public class PsiSubstitutorImpl implements PsiSubstitutor {
 
   @Override
   public void ensureValid() {
-    for (PsiType type : mySubstitutionMap.values()) {
+    mySubstitutionMap.values().forEach(type -> {
       if (type != null) {
         PsiUtil.ensureValidType(type);
       }
-    }
+    });
   }
 
   @Override

@@ -48,6 +48,7 @@ public class YamlByJsonSchemaHeavyCompletionTest extends JsonBySchemaHeavyComple
       Assert.assertTrue(idx > 0);
       PsiElement element = schema.findElementAt(idx);
       element = element instanceof JsonStringLiteral ? element : PsiTreeUtil.getParentOfType(element, JsonStringLiteral.class);
+      Assert.assertNotNull(element);
       Assert.assertTrue(element instanceof JsonStringLiteral);
 
       final PsiFile dummy = PsiFileFactory.getInstance(getProject()).createFileFromText("test.json", JsonFileType.INSTANCE,
@@ -117,5 +118,9 @@ public class YamlByJsonSchemaHeavyCompletionTest extends JsonBySchemaHeavyComple
 
   public void testPreserveColonInsertWsNonString() throws Exception {
     baseInsertTest("preserveColon", "testInsertNonStringAndWhitespace");
+  }
+
+  public void testInsertNumericValue() throws Exception {
+    baseInsertTest("insertNumericValue", "testInsertNumericValue");
   }
 }

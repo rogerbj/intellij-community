@@ -32,6 +32,7 @@ class ParameterInlayProviderSettingsModel(
   override val cases: List<ImmediateConfigurable.Case> = provider.supportedOptions.mapIndexed { index, option ->
     val state = optionStates[index]
     ImmediateConfigurable.Case(option.name,
+                               id = option.id,
                                loadFromSettings = { state.state },
                                onUserChanged = { state.state = it },
                                extendedDescription = option.extendedDescription
@@ -48,6 +49,7 @@ class ParameterInlayProviderSettingsModel(
     for (state in optionStates) {
       state.apply()
     }
+    ParameterHintsPassFactory.forceHintsUpdateOnNextPass()
   }
 
   override fun isModified(): Boolean {

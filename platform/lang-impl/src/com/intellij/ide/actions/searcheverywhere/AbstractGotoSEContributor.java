@@ -6,10 +6,7 @@ import com.intellij.ide.DataManager;
 import com.intellij.ide.actions.QualifiedNameProviderUtil;
 import com.intellij.ide.actions.SearchEverywherePsiRenderer;
 import com.intellij.ide.util.EditSourceUtil;
-import com.intellij.ide.util.gotoByName.ChooseByNameInScopeItemProvider;
-import com.intellij.ide.util.gotoByName.ChooseByNameItemProvider;
-import com.intellij.ide.util.gotoByName.ChooseByNamePopup;
-import com.intellij.ide.util.gotoByName.FilteringGotoByModel;
+import com.intellij.ide.util.gotoByName.*;
 import com.intellij.ide.util.scopeChooser.ScopeChooserCombo;
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor;
 import com.intellij.navigation.NavigationItem;
@@ -19,6 +16,7 @@ import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction;
 import com.intellij.openapi.actionSystem.impl.ActionButtonWithText;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.keymap.KeymapUtil;
@@ -60,7 +58,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public abstract class AbstractGotoSEContributor implements SearchEverywhereContributor<Object> {
+public abstract class AbstractGotoSEContributor implements WeightedSearchEverywhereContributor<Object> {
   private static final Logger LOG = Logger.getInstance(AbstractGotoSEContributor.class);
   private static final Key<Map<String, String>> SE_SELECTED_SCOPES = Key.create("SE_SELECTED_SCOPES");
 
@@ -101,6 +99,12 @@ public abstract class AbstractGotoSEContributor implements SearchEverywhereContr
       myProjectScope = ObjectUtils.notNull(result.get(), myEverywhereScope);
     }
     myScopeDescriptor = getInitialSelectedScope();
+  }
+
+  @Nullable
+  @Override
+  public String getAdvertisement() {
+    return DumbService.isDumb(myProject) ? "Results might be incomplete. The project is being indexed." : null;
   }
 
   @NotNull
@@ -216,13 +220,15 @@ public abstract class AbstractGotoSEContributor implements SearchEverywhereContr
   }
 
   @Override
-  public void fetchElements(@NotNull String pattern,
-                            @NotNull ProgressIndicator progressIndicator,
-                            @NotNull Processor<? super Object> consumer) {
+  public void fetchWeightedElements(@NotNull String pattern,
+                                    @NotNull ProgressIndicator progressIndicator,
+                                    @NotNull Processor<? super FoundItemDescriptor<Object>> consumer) {
     if (myProject == null) return; //nowhere to search
     if (!isEmptyPatternSupported() && pattern.isEmpty()) return;
 
-    ProgressIndicatorUtils.yieldToPendingWriteActions();
+    if (!ApplicationManager.getApplication().isUnitTestMode()) {
+      ProgressIndicatorUtils.yieldToPendingWriteActions();
+    }
     ProgressIndicatorUtils.runInReadActionWithWriteActionPriority(() -> {
       if (!isDumbAware() && DumbService.isDumb(myProject)) return;
 
@@ -236,33 +242,42 @@ public abstract class AbstractGotoSEContributor implements SearchEverywhereContr
         GlobalSearchScope scope = Registry.is("search.everywhere.show.scopes")
                                   ? (GlobalSearchScope)ObjectUtils.notNull(myScopeDescriptor.getScope())
                                   : null;
+
+        boolean everywhere = scope == null ? myEverywhere : scope.isSearchInLibraries();
         if (scope != null && provider instanceof ChooseByNameInScopeItemProvider) {
           FindSymbolParameters parameters = FindSymbolParameters.wrap(pattern, scope);
-          ((ChooseByNameInScopeItemProvider)provider).filterElements(popup, parameters, progressIndicator, element -> {
-            if (progressIndicator.isCanceled()) return false;
-            if (element == null) {
-              LOG.error("Null returned from " + model + " in " + this);
-              return true;
-            }
-            return consumer.process(element);
-          });
+          ((ChooseByNameInScopeItemProvider) provider).filterElementsWithWeights(popup, parameters, progressIndicator,
+                        item -> processElement(progressIndicator, consumer, model, item.getItem(), item.getWeight())
+          );
+        }
+        else if (provider instanceof ChooseByNameWeightedItemProvider) {
+          ((ChooseByNameWeightedItemProvider) provider).filterElementsWithWeights(popup, pattern, everywhere, progressIndicator,
+                        item -> processElement(progressIndicator, consumer, model, item.getItem(), item.getWeight())
+          );
         }
         else {
-          boolean everywhere = scope == null ? myEverywhere : scope.isSearchInLibraries();
-          provider.filterElements(popup, pattern, everywhere, progressIndicator, element -> {
-            if (progressIndicator.isCanceled()) return false;
-            if (element == null) {
-              LOG.error("Null returned from " + model + " in " + this);
-              return true;
-            }
-            return consumer.process(element);
-          });
+          provider.filterElements(popup, pattern, everywhere, progressIndicator,
+                        element -> processElement(progressIndicator, consumer, model, element, getElementPriority(element, pattern))
+          );
         }
       }
       finally {
         Disposer.dispose(popup);
       }
     }, progressIndicator);
+  }
+
+  private boolean processElement(@NotNull ProgressIndicator progressIndicator,
+                                 @NotNull Processor<? super FoundItemDescriptor<Object>> consumer,
+                                 FilteringGotoByModel<?> model, Object element, int degree) {
+    if (progressIndicator.isCanceled()) return false;
+
+    if (element == null) {
+      LOG.error("Null returned from " + model + " in " + this);
+      return true;
+    }
+
+    return consumer.process(new FoundItemDescriptor<>(element, degree));
   }
 
   @NotNull

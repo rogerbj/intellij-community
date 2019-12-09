@@ -17,10 +17,7 @@
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.lang.annotation.Annotation;
-import com.intellij.lang.annotation.AnnotationHolder;
-import com.intellij.lang.annotation.AnnotationSession;
-import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.lang.annotation.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
@@ -29,15 +26,17 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.SmartList;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * @author max
+ * Use {@link AnnotationHolder} instead. The members of this class can suddenly change or disappear.
  */
+@ApiStatus.Internal
 public class AnnotationHolderImpl extends SmartList<Annotation> implements AnnotationHolder {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.AnnotationHolderImpl");
+  private static final Logger LOG = Logger.getInstance(AnnotationHolderImpl.class);
   private final AnnotationSession myAnnotationSession;
 
   private final boolean myBatchMode;
@@ -161,4 +160,20 @@ public class AnnotationHolderImpl extends SmartList<Annotation> implements Annot
   public AnnotationSession getCurrentAnnotationSession() {
     return myAnnotationSession;
   }
+
+  // internal optimization method to reduce latency between creating Annotation and showing it on screen
+  // (Do not) call this method to
+  // 1. state that all Annotations in this holder are final (no further Annotation.setXXX() or .registerFix() are following) and
+  // 2. queue them all for converting to RangeHighlighters in EDT
+  @ApiStatus.Internal
+  void queueToUpdateIncrementally() {
+  }
+
+  @NotNull
+  @Override
+  public AnnotationBuilder newAnnotation(@NotNull HighlightSeverity severity, @NotNull String message) {
+    return new B(this, severity, message, myCurrentElement);
+  }
+
+  PsiElement myCurrentElement;
 }

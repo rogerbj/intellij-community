@@ -23,14 +23,13 @@ import static org.jetbrains.intellij.build.pycharm.PyCharmBuildOptions.GENERATE_
 /**
  * @author nik
  */
-abstract class PyCharmPropertiesBase extends ProductProperties {
+abstract class PyCharmPropertiesBase extends JetBrainsProductProperties {
   protected String dependenciesPath
 
   PyCharmPropertiesBase() {
     baseFileName = "pycharm"
     reassignAltClickToMultipleCarets = true
     productLayout.mainJarName = "pycharm.jar"
-    productLayout.additionalPlatformJars.put("pycharm-pydev.jar", "intellij.python.pydev")
     productLayout.additionalPlatformJars.putAll("testFramework.jar",
                                                 "intellij.platform.testFramework.core",
                                                 "intellij.platform.testFramework",
@@ -42,25 +41,14 @@ abstract class PyCharmPropertiesBase extends ProductProperties {
       "intellij.java.compiler.antTasks",
       "intellij.platform.testFramework"
     ]
-    productLayout.buildAllCompatiblePlugins = true
-    productLayout.compatiblePluginsToIgnore = [
-      "intellij.python.community.plugin.resources"
-    ]
+    productLayout.compatiblePluginsToIgnore.add("intellij.python.conda")
   }
 
   @Override
   void copyAdditionalFiles(BuildContext context, String targetDirectory) {
     def tasks = BuildTasks.create(context)
-    tasks.zipSourcesOfModules(["intellij.python.pydev"], "$targetDirectory/lib/src/pycharm-pydev-src.zip")
     tasks.zipSourcesOfModules(["intellij.python.community", "intellij.python.psi"], "$targetDirectory/lib/src/pycharm-openapi-src.zip")
 
-    context.ant.copy(todir: "$targetDirectory/helpers") {
-      fileset(dir: "$context.paths.communityHome/python/helpers") {
-        exclude(name: "**/setup.py")
-        exclude(name: "pydev/test**/**")
-        exclude(name: "tests/")
-      }
-    }
     context.ant.copy(todir: "$targetDirectory/help", failonerror: false) {
       fileset(dir: "$context.paths.projectHome/python/help") {
         include(name: "*.pdf")
@@ -213,5 +201,13 @@ abstract class PyCharmPropertiesBase extends ProductProperties {
     }
 
     folderWithUnzipContent.deleteDir()
+  }
+
+  static void downloadMiniconda(BuildContext context, String targetDirectory, String osName) {
+    final String installer = "Miniconda3-latest-$osName-x86_64.${if (osName == "Windows") "exe" else "sh"}"
+
+    context.ant.mkdir(dir: "$targetDirectory/$PyCharmBuildOptions.minicondaInstallerFolderName")
+    context.ant.get(src: "https://repo.continuum.io/miniconda/$installer",
+                    dest: "$targetDirectory/$PyCharmBuildOptions.minicondaInstallerFolderName")
   }
 }

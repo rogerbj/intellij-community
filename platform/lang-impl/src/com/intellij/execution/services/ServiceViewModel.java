@@ -8,6 +8,7 @@ import com.intellij.execution.services.ServiceModel.ServiceViewItem;
 import com.intellij.execution.services.ServiceModelFilter.ServiceViewFilter;
 import com.intellij.execution.services.ServiceViewState.ServiceState;
 import com.intellij.openapi.Disposable;
+import com.intellij.util.SmartList;
 import com.intellij.util.concurrency.Invoker;
 import com.intellij.util.concurrency.InvokerSupplier;
 import com.intellij.util.containers.ContainerUtil;
@@ -144,6 +145,9 @@ abstract class ServiceViewModel implements Disposable, InvokerSupplier {
     return myModel.getInvoker();
   }
 
+  public void initRootsIfNeeded() {
+  }
+
   @NotNull
   private List<? extends ServiceViewItem> processGroups(@NotNull List<? extends ServiceViewItem> items, boolean visible) {
     if (visible) {
@@ -233,7 +237,7 @@ abstract class ServiceViewModel implements Disposable, InvokerSupplier {
           return new SingeServiceModel(model, modelFilter, ref, parentFilter);
         }
         else {
-          new ServiceListModel(model, modelFilter, ContainerUtil.newSmartList(serviceItem), parentFilter);
+          new ServiceListModel(model, modelFilter, new SmartList<>(serviceItem), parentFilter);
         }
       }
       case ServiceListModel.TYPE:
@@ -334,6 +338,11 @@ abstract class ServiceViewModel implements Disposable, InvokerSupplier {
     void eventProcessed(ServiceEvent e) {
       notifyListeners();
     }
+
+    @Override
+    public void initRootsIfNeeded() {
+      myModel.initRoots();
+    }
   }
 
   static class ContributorModel extends ServiceViewModel {
@@ -371,7 +380,7 @@ abstract class ServiceViewModel implements Disposable, InvokerSupplier {
       viewState.viewType = TYPE;
       ServiceState serviceState = new ServiceState();
       serviceState.contributor = myContributor.getClass().getName();
-      viewState.roots = ContainerUtil.newSmartList(serviceState);
+      viewState.roots = new SmartList<>(serviceState);
     }
 
     ServiceViewContributor<?> getContributor() {

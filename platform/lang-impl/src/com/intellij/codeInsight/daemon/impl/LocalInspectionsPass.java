@@ -60,7 +60,7 @@ import java.util.function.Function;
  * @author max
  */
 public class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.LocalInspectionsPass");
+  private static final Logger LOG = Logger.getInstance(LocalInspectionsPass.class);
   public static final TextRange EMPTY_PRIORITY_RANGE = TextRange.EMPTY_RANGE;
   private static final Condition<PsiFile> SHOULD_INSPECT_FILTER = file -> HighlightingLevelManager.getInstance(file.getProject()).shouldInspect(file);
   private final TextRange myPriorityRange;
@@ -206,7 +206,9 @@ public class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass
     myInfos = new ArrayList<>();
     addHighlightsFromResults(myInfos);
 
-    if (isOnTheFly) highlightRedundantSuppressions(toolWrappers, iManager, inside, outside, elementDialectIds);
+    if (isOnTheFly) {
+      highlightRedundantSuppressions(toolWrappers, iManager, inside, outside, elementDialectIds);
+    }
   }
 
   private void highlightRedundantSuppressions(@NotNull List<? extends LocalInspectionToolWrapper> toolWrappers,
@@ -518,7 +520,7 @@ public class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass
                                              @NotNull PsiElement element, boolean ignoreSuppressed) {
     LocalInspectionTool tool = toolWrapper.getTool();
     if (ignoreSuppressed && SuppressionUtil.inspectionResultSuppressed(element, tool)) {
-      mySuppressedElements.computeIfAbsent(toolWrapper.getID(), shortName -> new HashSet<>()).add(element);
+      registerSuppressedElements(toolWrapper, element);
       return;
     }
     HighlightInfoType level = ProblemDescriptorUtil.highlightTypeFromDescriptor(descriptor, severity, mySeverityRegistrar);
@@ -565,6 +567,15 @@ public class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass
       return;
     }
     injectToHost(outInfos, ilManager, file, documentRange, toolWrapper, element, fixes, info);
+  }
+
+  private void registerSuppressedElements(@NotNull LocalInspectionToolWrapper toolWrapper,
+                                          @NotNull PsiElement element) {
+    mySuppressedElements.computeIfAbsent(toolWrapper.getID(), shortName -> new HashSet<>()).add(element);
+    String alternativeID = toolWrapper.getAlternativeID();
+    if (alternativeID != null) {
+      mySuppressedElements.computeIfAbsent(alternativeID, shortName -> new HashSet<>()).add(element);
+    }
   }
 
   private static void injectToHost(@NotNull List<? super HighlightInfo> outInfos,
@@ -659,7 +670,7 @@ public class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass
     final Set<PsiElement> result = new LinkedHashSet<>();
     Set<Language> processedLanguages = new SmartHashSet<>();
     final PsiElementVisitor visitor = new PsiRecursiveElementVisitor() {
-      @Override public void visitElement(PsiElement element) {
+      @Override public void visitElement(@NotNull PsiElement element) {
         ProgressManager.checkCanceled();
         PsiElement child = element.getFirstChild();
         if (child == null) {
@@ -752,7 +763,7 @@ public class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass
         @Override
         public void registerProblem(@NotNull ProblemDescriptor descriptor) {
           if (host != null && myIgnoreSuppressed && SuppressionUtil.inspectionResultSuppressed(host, tool)) {
-            mySuppressedElements.computeIfAbsent(wrapper.getID(), shortName -> new HashSet<>()).add(host);
+            registerSuppressedElements(wrapper, host);
             return;
           }
           super.registerProblem(descriptor);

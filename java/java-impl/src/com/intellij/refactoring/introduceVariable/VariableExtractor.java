@@ -19,6 +19,7 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.refactoring.introduceField.ElementToWorkOn;
 import com.intellij.refactoring.util.FieldConflictsResolver;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.ArrayUtilRt;
@@ -38,7 +39,7 @@ import java.util.*;
  * No user interaction is performed here.
  */
 class VariableExtractor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.introduceVariable.VariableExtractor");
+  private static final Logger LOG = Logger.getInstance(VariableExtractor.class);
 
   private final Project myProject;
   private final Editor myEditor;
@@ -74,6 +75,9 @@ class VariableExtractor {
   private SmartPsiElementPointer<PsiVariable> extractVariable() {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
     final PsiExpression newExpr = myFieldConflictsResolver.fixInitializer(myExpression);
+    if (myAnchor == myExpression) {
+      myAnchor = newExpr;
+    }
     PsiExpression initializer = RefactoringUtil.unparenthesizeExpression(newExpr);
     final SmartTypePointer selectedType = SmartTypePointerManager.getInstance(myProject).createSmartTypePointer(
       mySettings.getSelectedType());
@@ -216,7 +220,7 @@ class VariableExtractor {
       PsiDeclarationStatement declarationStatement = (PsiDeclarationStatement)declaration;
       PsiLocalVariable localVariable = (PsiLocalVariable)declarationStatement.getDeclaredElements()[0];
       PsiResourceVariable resourceVariable = JavaPsiFacade.getElementFactory(anchor.getProject())
-        .createResourceVariable(Objects.requireNonNull(localVariable.getName()), localVariable.getType(), initializer, anchor);
+        .createResourceVariable(localVariable.getName(), localVariable.getType(), initializer, anchor);
       return anchor.replace(resourceVariable);
     }
     PsiElement parent = anchor.getParent();
@@ -268,6 +272,10 @@ class VariableExtractor {
   private static PsiElement correctAnchor(PsiExpression expr,
                                           @NotNull PsiElement anchor,
                                           PsiExpression[] occurrences) {
+    if (!expr.isPhysical()) {
+      expr = ObjectUtils.tryCast(expr.getUserData(ElementToWorkOn.PARENT), PsiExpression.class);
+      if (expr == null) return anchor;
+    }
     if (anchor instanceof PsiSwitchLabelStatementBase) {
       PsiSwitchBlock block = ((PsiSwitchLabelStatementBase)anchor).getEnclosingSwitchBlock();
       if (block == null) return anchor;
@@ -276,7 +284,7 @@ class VariableExtractor {
         expr = (PsiExpression)anchor;
       }
     }
-    Set<PsiExpression> allOccurrences = StreamEx.of(occurrences).append(expr).toSet();
+    Set<PsiExpression> allOccurrences = StreamEx.of(occurrences).filter(PsiElement::isPhysical).append(expr).toSet();
     PsiExpression firstOccurrence = Collections.min(allOccurrences, Comparator.comparing(e -> e.getTextRange().getStartOffset()));
     if (anchor instanceof PsiWhileStatement) {
       PsiWhileStatement whileStatement = (PsiWhileStatement)anchor;

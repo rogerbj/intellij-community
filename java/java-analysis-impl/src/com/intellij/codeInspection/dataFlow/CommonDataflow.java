@@ -7,9 +7,6 @@ import com.intellij.codeInspection.dataFlow.value.DfaConstValue;
 import com.intellij.codeInspection.dataFlow.value.DfaFactMapValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
-import com.intellij.diagnostic.ThreadDumper;
-import com.intellij.openapi.diagnostic.Attachment;
-import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.*;
@@ -86,7 +83,7 @@ public class CommonDataflow {
       if (myFacts == DfaFactMap.EMPTY) return;
       DfaFactMap newMap = DataflowResult.getFactMap(memState, value);
       if (value instanceof DfaVariableValue) {
-        SpecialField field = SpecialField.fromQualifierType(value.getType());
+        SpecialField field = SpecialField.fromQualifier(value);
         if (field != null) {
           DfaValue specialField = field.createValue(value.getFactory(), value);
           if (specialField instanceof DfaVariableValue) {
@@ -245,9 +242,9 @@ public class CommonDataflow {
   @NotNull
   private static DataflowResult runDFA(@Nullable PsiElement block) {
     if (block == null) return new DataflowResult(RunnerResult.NOT_APPLICABLE);
-    DataFlowRunner runner = new DataFlowRunner(false, block);
+    DataFlowRunner runner = new DataFlowRunner(block);
     CommonDataflowVisitor visitor = new CommonDataflowVisitor();
-    RunnerResult result = runner.analyzeMethodRecursively(block, visitor, false);
+    RunnerResult result = runner.analyzeMethodRecursively(block, visitor);
     if (result != RunnerResult.OK) return new DataflowResult(result);
     if (!(block instanceof PsiClass)) return visitor.myResult;
     DataflowResult dfr = visitor.myResult.copy();
@@ -262,7 +259,7 @@ public class CommonDataflow {
       } else {
         initialStates = StreamEx.of(states).map(DfaMemoryState::createCopy).toList();
       }
-      if(runner.analyzeBlockRecursively(body, initialStates, visitor, false) == RunnerResult.OK) {
+      if(runner.analyzeBlockRecursively(body, initialStates, visitor) == RunnerResult.OK) {
         dfr = visitor.myResult.copy();
       } else {
         visitor.myResult = dfr;
@@ -307,9 +304,8 @@ public class CommonDataflow {
       ForkJoinPool.managedBlock(managedCompute);
     }
     catch (RejectedExecutionException ex) {
-      Attachment attachment = new Attachment("dumps.txt", ThreadDumper.dumpThreadsToString());
-      attachment.setIncluded(true);
-      throw new RuntimeExceptionWithAttachments("Rejected execution!", attachment);
+      // Too many FJP threads: execute anyway in current thread
+      managedCompute.block();
     }
     catch (InterruptedException ex) {
       // Should not happen

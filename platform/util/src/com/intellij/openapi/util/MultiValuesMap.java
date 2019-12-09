@@ -9,14 +9,14 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 /**
- * @deprecated use {@link com.intellij.util.containers.MultiMap} directly.
+ * @deprecated use {@link MultiMap} directly.
  * <p></p>On migration please note that MultiMap has few differences:<ul>
- * <li>{@link MultiMap#get(java.lang.Object)} method returns non-null value. In case there is no value for the key - empty collection is returned.</li>
+ * <li>{@link MultiMap#get(Object)} method returns non-null value. In case there is no value for the key - empty collection is returned.</li>
  * <li>{@link MultiMap#values} method returns a real values collection, not a copy. Be careful with modifications.</li>
  * <li>Default implementations of {@link MultiMap} may not permit null keys and/or null values</li>
  * </ul></p>
  */
-@Debug.Renderer(text = "\"size = \" + myBaseMap.size()", hasChildren = "!isEmpty()", childrenArray = "entrySet().toArray()")
+@Debug.Renderer(text = "\"size = \" + myDelegate.size()", hasChildren = "!isEmpty()", childrenArray = "entrySet().toArray()")
 @Deprecated
 public class MultiValuesMap<K, V>{
   private final MultiMap<K, V> myDelegate;

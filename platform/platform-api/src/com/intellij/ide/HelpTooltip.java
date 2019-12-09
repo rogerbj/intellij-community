@@ -163,7 +163,7 @@ public class HelpTooltip {
         r.setLocation(location);
 
         if (r.contains(mouseLocation)) {
-          location.y = - popupSize.height - JBUI.scale(1);
+          location.y = mouseLocation.y - r.height - JBUI.scale(5);
         }
 
         return location;
@@ -180,7 +180,7 @@ public class HelpTooltip {
    * @param title text for title.
    * @return {@code this}
    */
-  public HelpTooltip setTitle(String title) {
+  public HelpTooltip setTitle(@Nullable String title) {
     this.title = title;
     return this;
   }
@@ -191,7 +191,7 @@ public class HelpTooltip {
    * @param shortcut text for shortcut.
    * @return {@code this}
    */
-  public HelpTooltip setShortcut(String shortcut) {
+  public HelpTooltip setShortcut(@Nullable String shortcut) {
     this.shortcut = shortcut;
     return this;
   }
@@ -202,7 +202,7 @@ public class HelpTooltip {
    * @param description text for description.
    * @return {@code this}
    */
-  public HelpTooltip setDescription(String description) {
+  public HelpTooltip setDescription(@Nullable String description) {
     this.description = description;
     return this;
   }
@@ -526,13 +526,15 @@ public class HelpTooltip {
         setSizeForWidth(width);
       }
       else {
-        setText(String.format("<html>%s%s</html>", title, getShortcutAsHTML()));
+        setText(BasicHTML.isHTMLString(title) ?
+                title :
+                String.format("<html>%s%s</html>", title, getShortcutAsHTML()));
       }
     }
 
     private String getShortcutAsHTML() {
       return StringUtil.isNotEmpty(shortcut) ?
-             String.format(" <font color=\"%s\">%s</font>", ColorUtil.toHtmlColor(SHORTCUT_COLOR), shortcut) :
+             String.format("&nbsp;&nbsp;<font color=\"%s\">%s</font>", ColorUtil.toHtmlColor(SHORTCUT_COLOR), shortcut) :
              "";
     }
   }

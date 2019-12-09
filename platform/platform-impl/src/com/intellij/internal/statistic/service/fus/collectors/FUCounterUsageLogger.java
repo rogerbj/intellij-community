@@ -6,6 +6,7 @@ import com.intellij.internal.statistic.eventLog.EventLogGroup;
 import com.intellij.internal.statistic.eventLog.FeatureUsageData;
 import com.intellij.internal.statistic.eventLog.FeatureUsageGroup;
 import com.intellij.internal.statistic.eventLog.fus.FeatureUsageLogger;
+import com.intellij.internal.statistic.eventLog.validator.SensitiveDataValidator;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.Extensions;
@@ -19,6 +20,38 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+/**
+ *
+ * <p>Use it to record IDE events e.g. invoked action, opened dialog.</p><br/>
+ *
+ * To implement a new collector:
+ * <ol>
+ *   <li>Record events with {@link FUCounterUsageLogger#logEvent(Project, String, String)},
+ *   {@link FUCounterUsageLogger#logEvent(Project, String, String, FeatureUsageData)},
+ *   {@link FUCounterUsageLogger#logEvent(String, String)} or
+ *   {@link FUCounterUsageLogger#logEvent(String, String, FeatureUsageData)};
+ *   </li>
+ *   <li>Register collector in plugin.xml as {@code <statistics.counterUsagesCollector groupId="ID" version="1"/>};</li>
+ *   <li>Specify collectors data scheme and implement custom validation rules if necessary.<br/>
+ *   For more information see {@link SensitiveDataValidator};</li>
+ *   <li>Create an <a href="https://youtrack.jetbrains.com/issues/FUS">issue</a> to add group, its data scheme and description to the whitelist;</li>
+ * </ol>
+ *
+ * To test collector:
+ * <ol>
+ *  <li>
+ *    If group is not whitelisted, add it to local whitelist with "Add Test Group to Local Whitelist" action.<br/>
+ *    {@link com.intellij.internal.statistic.actions.AddTestGroupToLocalWhitelistAction}
+ *  </li>
+ *  <li>
+ *    Open toolwindow with event logs with "Show Statistics Event Log" action.<br/>
+ *    {@link com.intellij.internal.statistic.actions.ShowStatisticsEventLogAction}
+ *  </li>
+ * </ol>
+ *
+ * @see ApplicationUsagesCollector
+ * @see ProjectUsagesCollector
+ */
 public class FUCounterUsageLogger {
   private static final Logger LOG = Logger.getInstance(FUCounterUsageLogger.class);
 
@@ -26,7 +59,8 @@ public class FUCounterUsageLogger {
   private static final int LOG_REGISTERED_INITIAL_DELAY_MIN = 5;
 
   /**
-   * System event which indicates that the counter collector is enabled in current IDE build, can be used to calculate the base line
+   * System event which indicates that the counter collector is enabled in current IDE build.
+   * Used to calculate metric baseline.
    */
   private static final String REGISTERED = "registered";
   private static final String[] GENERAL_GROUPS = new String[]{
@@ -192,7 +226,8 @@ public class FUCounterUsageLogger {
   @Nullable
   private EventLogGroup findRegisteredGroupById(@NotNull String groupId) {
     if (!myGroups.containsKey(groupId)) {
-      LOG.warn("Cannot record event because group '" + groupId + "' is not registered.");
+      LOG.warn("Cannot record event because group '" + groupId + "' is not registered. " +
+               "To fix it add '<statistics.counterUsagesCollector groupId=\"" + groupId + "\" version=\"1\"/>' in plugin.xml");
       return null;
     }
     return myGroups.get(groupId);

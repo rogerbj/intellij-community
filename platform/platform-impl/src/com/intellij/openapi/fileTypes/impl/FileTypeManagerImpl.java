@@ -50,13 +50,11 @@ import com.intellij.openapi.vfs.newvfs.FileSystemInterface;
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.newvfs.impl.StubVirtualFile;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.GuiUtils;
 import com.intellij.util.*;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.BoundedTaskExecutor;
-import com.intellij.util.concurrency.EdtExecutorService;
 import com.intellij.util.containers.ConcurrentPackedBitsArray;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashSetQueue;
@@ -156,10 +154,6 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
   private final AtomicLong elapsedAutoDetect = new AtomicLong();
 
   private final Object PENDING_INIT_LOCK = new Object();
-
-  private MultiValuesMap<FileType, FileTypeDetector> myFileTypeDetectorMap;
-  private final List<FileTypeDetector> myUntypedFileTypeDetectors = new ArrayList<>();
-  private final Object FILE_TYPE_DETECTOR_MAP_LOCK = new Object();
 
   public FileTypeManagerImpl() {
     int fileTypeChangedCounter = PropertiesComponent.getInstance().getInt("fileTypeChangedCounter", 0);
@@ -269,22 +263,6 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
 
     myIgnoredPatterns.setIgnoreMasks(DEFAULT_IGNORED);
 
-    FileTypeDetector.EP_NAME.addExtensionPointListener(new ExtensionPointListener<FileTypeDetector>() {
-      @Override
-      public void extensionAdded(@NotNull FileTypeDetector extension, @NotNull PluginDescriptor pluginDescriptor) {
-        synchronized (FILE_TYPE_DETECTOR_MAP_LOCK) {
-          myFileTypeDetectorMap = null;
-        }
-      }
-
-      @Override
-      public void extensionRemoved(@NotNull FileTypeDetector extension, @NotNull PluginDescriptor pluginDescriptor) {
-        synchronized (FILE_TYPE_DETECTOR_MAP_LOCK) {
-          myFileTypeDetectorMap = null;
-        }
-      }
-    }, this);
-
     EP_NAME.addExtensionPointListener(new ExtensionPointListener<FileTypeBean>() {
       @Override
       public void extensionAdded(@NotNull FileTypeBean extension, @NotNull PluginDescriptor pluginDescriptor) {
@@ -301,7 +279,6 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
         if (fileType instanceof LanguageFileType) {
           final LanguageFileType languageFileType = (LanguageFileType)fileType;
           if (!languageFileType.isSecondary()) {
-            IElementType.unregisterElementTypes(languageFileType.getLanguage());
             Language.unregisterLanguage(languageFileType.getLanguage());
           }
         }
@@ -341,7 +318,7 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
           FileTypeBean pendingTypeByMatcher = myPendingAssociations.findAssociatedFileType(matcher);
           if (pendingTypeByMatcher != null) {
             PluginId id = pendingTypeByMatcher.getPluginId();
-            if (id == null || id.getIdString().equals(PluginManagerCore.CORE_PLUGIN_ID)) {
+            if (id == null || PluginManagerCore.CORE_ID == id) {
               instantiateFileTypeBean(pendingTypeByMatcher);
             }
           }
@@ -471,6 +448,7 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
 
   private FileType instantiateFileTypeBean(@NotNull FileTypeBean fileTypeBean) {
     FileType fileType;
+    PluginId pluginId = fileTypeBean.getPluginDescriptor().getPluginId();
     try {
       @SuppressWarnings("unchecked")
       Class<FileType> beanClass = (Class<FileType>)Class.forName(fileTypeBean.implementationClass, true, fileTypeBean.getPluginDescriptor().getPluginClassLoader());
@@ -485,18 +463,18 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
       }
     }
     catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
-      LOG.error(new PluginException(e, fileTypeBean.getPluginDescriptor().getPluginId()));
+      LOG.error(new PluginException(e, pluginId));
       return null;
     }
 
     if (!fileType.getName().equals(fileTypeBean.name)) {
-      LOG.error("Incorrect name specified in <fileType>, should be " + fileType.getName() + ", actual " + fileTypeBean.name);
+      LOG.error(new PluginException("Incorrect name specified in <fileType>, should be " + fileType.getName() + ", actual " + fileTypeBean.name, pluginId));
     }
     if (fileType instanceof LanguageFileType) {
       final LanguageFileType languageFileType = (LanguageFileType)fileType;
       String expectedLanguage = languageFileType.isSecondary() ? null : languageFileType.getLanguage().getID();
       if (!Comparing.equal(fileTypeBean.language, expectedLanguage)) {
-        LOG.error("Incorrect language specified in <fileType> for " + fileType.getName() + ", should be " + expectedLanguage + ", actual " + fileTypeBean.language);
+        LOG.error(new PluginException("Incorrect language specified in <fileType> for " + fileType.getName() + ", should be " + expectedLanguage + ", actual " + fileTypeBean.language, pluginId));
       }
     }
 
@@ -619,12 +597,16 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
       }
     }
     if (!changed.isEmpty()) {
-      ApplicationManager.getApplication().invokeLater(() -> FileContentUtilCore.reparseFiles(changed), ApplicationManager.getApplication().getDisposed());
+      reparseLater(changed);
     }
     if (!crashed.isEmpty()) {
       // do not re-scan locked or invalid files too often to avoid constant disk thrashing if that condition is permanent
-      EdtExecutorService.getScheduledExecutorInstance().schedule(() -> FileContentUtilCore.reparseFiles(crashed), 10, TimeUnit.SECONDS);
+      AppExecutorUtil.getAppScheduledExecutorService().schedule(() -> reparseLater(crashed), 10, TimeUnit.SECONDS);
     }
+  }
+
+  private static void reparseLater(@NotNull List<? extends VirtualFile> changed) {
+    ApplicationManager.getApplication().invokeLater(() -> FileContentUtilCore.reparseFiles(changed), ApplicationManager.getApplication().getDisposed());
   }
 
   private boolean wasAutoDetectedBefore(@NotNull VirtualFile file) {
@@ -747,9 +729,10 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
       if (fileType == null) {
         return getOrDetectFromContent(file, content);
       }
-      if (mightBeReplacedByDetectedFileType(fileType)) {
+      if (mightBeReplacedByDetectedFileType(fileType) && isDetectable(file)) {
         FileType detectedFromContent = getOrDetectFromContent(file, content);
-        if (detectedFromContent != UnknownFileType.INSTANCE && detectedFromContent != PlainTextFileType.INSTANCE) {
+        // unknown file type means that it was detected as binary, it's better to keep it binary
+        if (detectedFromContent != PlainTextFileType.INSTANCE) {
           return detectedFromContent;
         }
       }
@@ -853,7 +836,7 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
   @NotNull
   private static String readableFlags(long flags) {
     String result = "";
-    if (BitUtil.isSet(flags, ATTRIBUTES_WERE_LOADED_MASK)) result += (result.isEmpty() ? "" :" | ") + "ATTRIBUTES_WERE_LOADED_MASK";
+    if (BitUtil.isSet(flags, ATTRIBUTES_WERE_LOADED_MASK)) result += "ATTRIBUTES_WERE_LOADED_MASK";
     if (BitUtil.isSet(flags, AUTO_DETECT_WAS_RUN_MASK)) result += (result.isEmpty() ? "" :" | ") + "AUTO_DETECT_WAS_RUN_MASK";
     if (BitUtil.isSet(flags, AUTO_DETECTED_AS_BINARY_MASK)) result += (result.isEmpty() ? "" :" | ") + "AUTO_DETECTED_AS_BINARY_MASK";
     if (BitUtil.isSet(flags, AUTO_DETECTED_AS_TEXT_MASK)) result += (result.isEmpty() ? "" :" | ") + "AUTO_DETECTED_AS_TEXT_MASK";
@@ -1062,6 +1045,9 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
           try {
             detected = detector.detect(file, firstBytes, text);
           }
+          catch (ProcessCanceledException e) {
+            LOG.error("Detector " + detector + " (" + detector.getClass() + ") threw PCE. Bad detector, bad!", new RuntimeException(e));
+          }
           catch (Exception e) {
             LOG.error("Detector " + detector + " (" + detector.getClass() + ") exception occurred:", e);
           }
@@ -1106,94 +1092,6 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
              ", file.exists=" + file.exists() + ", file.content='" + FileUtil.loadFile(file) + "')";
     }
     return stream;
-  }
-
-  @Nullable
-  private Collection<FileTypeDetector> getDetectorsForType(@NotNull FileType fileType) {
-    synchronized (FILE_TYPE_DETECTOR_MAP_LOCK) {
-      if (myFileTypeDetectorMap == null) {
-        myFileTypeDetectorMap = new MultiValuesMap<>();
-        for (FileTypeDetector detector : FileTypeDetector.EP_NAME.getExtensionList()) {
-          Collection<? extends FileType> detectedFileTypes = detector.getDetectedFileTypes();
-          if (detectedFileTypes != null) {
-            for (FileType type : detectedFileTypes) {
-              myFileTypeDetectorMap.put(type, detector);
-            }
-          }
-          else {
-            myUntypedFileTypeDetectors.add(detector);
-            if (ApplicationManager.getApplication().isInternal()) {
-              LOG.error("File type detector " + detector + " does not implement getDetectedFileTypes(), leading to suboptimal performance. Please implement the method.");
-            }
-          }
-        }
-      }
-
-      return myFileTypeDetectorMap.get(fileType);
-    }
-  }
-
-  @Override
-  public boolean isFileOfType(@NotNull VirtualFile file, @NotNull FileType type) {
-    if (mightBeReplacedByDetectedFileType(type) || type.equals(UnknownFileType.INSTANCE)) {
-      // a file has unknown file type if none of file type detectors matched it
-      // for plain text file type, we run file type detection based on content
-
-      return file.getFileType().equals(type);
-    }
-
-    if (file instanceof LightVirtualFile) {
-      FileType assignedFileType = ((LightVirtualFile)file).getAssignedFileType();
-      if (assignedFileType != null) {
-        return type.equals(assignedFileType);
-      }
-    }
-
-    FileType overriddenFileType = FileTypeOverrider.EP_NAME.computeSafeIfAny((overrider) -> overrider.getOverriddenFileType(file));
-    if (overriddenFileType != null) {
-      return overriddenFileType.equals(type);
-    }
-
-    if (type instanceof FileTypeIdentifiableByVirtualFile &&
-        ((FileTypeIdentifiableByVirtualFile)type).isMyFileType(file)) {
-      return true;
-    }
-
-    FileType fileTypeByFileName = getFileTypeByFileName(file.getNameSequence());
-    if (fileTypeByFileName == type) {
-      return true;
-    }
-    if (fileTypeByFileName != UnknownFileType.INSTANCE) {
-      return false;
-    }
-    if (file instanceof StubVirtualFile || !isDetectable(file)) {
-      return false;
-    }
-
-    FileType detectedFromContentFileType = file.getUserData(DETECTED_FROM_CONTENT_FILE_TYPE_KEY);
-    if (detectedFromContentFileType != null) {
-      return detectedFromContentFileType.equals(type);
-    }
-
-    Collection<FileTypeDetector> detectors = getDetectorsForType(type);
-    if (detectors != null || !myUntypedFileTypeDetectors.isEmpty()) {
-      Iterable<FileTypeDetector> applicableDetectors =
-        detectors != null ? ContainerUtil.concat(detectors, myUntypedFileTypeDetectors) : myUntypedFileTypeDetectors;
-
-      try {
-        FileType detectedType = detectFromContent(file, null, applicableDetectors);
-        if (detectedType != UnknownFileType.INSTANCE && detectedType != PlainTextFileType.INSTANCE) {
-          cacheAutoDetectedFileType(file, detectedType);
-        }
-        if (detectedType.equals(type)) {
-          return true;
-        }
-      }
-      catch (IOException ignored) {
-      }
-    }
-
-    return false;
   }
 
   @Override

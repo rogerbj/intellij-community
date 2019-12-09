@@ -4,6 +4,7 @@ package com.intellij.vcs.log.visible.filters
 import com.intellij.openapi.util.Comparing
 import com.intellij.vcs.log.VcsLogRangeFilter
 import com.intellij.vcs.log.VcsLogRangeFilter.RefRange
+import com.intellij.vcs.log.util.VcsLogUtil
 
 internal class VcsLogRangeFilterImpl(override val ranges: List<RefRange>) : VcsLogRangeFilter {
 
@@ -11,8 +12,14 @@ internal class VcsLogRangeFilterImpl(override val ranges: List<RefRange>) : VcsL
     return ranges.map { (before, after) -> "$before..$after" }
   }
 
+  override fun getDisplayText(): String {
+    return ranges.joinToString(", ") { (before, after) ->
+      "${VcsLogUtil.getShortHash(before)}..${VcsLogUtil.getShortHash(after)}"
+    }
+  }
+
   override fun toString(): String {
-    return presentation
+    return displayText
   }
 
   override fun equals(other: Any?): Boolean {

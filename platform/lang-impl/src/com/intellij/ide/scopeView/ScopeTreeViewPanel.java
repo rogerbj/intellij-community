@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.scopeView;
 
@@ -21,6 +21,7 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
@@ -71,7 +72,6 @@ import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeWillExpandListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.ExpandVetoException;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -146,7 +146,6 @@ public class ScopeTreeViewPanel extends JPanel implements Disposable {
 
   public ScopeTreeViewPanel(@NotNull Project project) {
     super(new BorderLayout());
-    myUpdateQueue.setPassThrough(false);  // we don't want passthrough mode, even in unit tests
     myProject = project;
     initTree();
 
@@ -414,7 +413,8 @@ public class ScopeTreeViewPanel extends JPanel implements Disposable {
       final List<TreePath> selectionPaths = TreeUtil.collectSelectedPaths(myTree, new TreePath(rootToReload.getPath()));
       final TreePath path = new TreePath(rootToReload.getPath());
       final boolean wasCollapsed = myTree.isCollapsed(path);
-      final Runnable runnable = () -> {
+
+      ApplicationManager.getApplication().invokeLater(() -> {
         if (!isTreeShowing() || rootToReload.getParent() == null) return;
         TreeUtil.sort(rootToReload, getNodeComparator());
         treeModel.reload(rootToReload);
@@ -427,12 +427,7 @@ public class ScopeTreeViewPanel extends JPanel implements Disposable {
             TreeUtil.selectPath(myTree, selectionPath);
           }
         }
-      };
-      if (ApplicationManager.getApplication().isUnitTestMode()) {
-        runnable.run();
-      } else {
-        SwingUtilities.invokeLater(runnable);
-      }
+      }, ModalityState.any());
     }
     else {
       TreeUtil.sort(treeModel, getNodeComparator());
@@ -448,10 +443,6 @@ public class ScopeTreeViewPanel extends JPanel implements Disposable {
     myTreeExpansionMonitor.freeze();
     reload(null);
     myTreeExpansionMonitor.restore();
-  }
-
-  ActionCallback getActionCallback() {
-    return myActionCallback;
   }
 
   private class MyTreeCellRenderer extends ColoredTreeCellRenderer {
@@ -944,7 +935,7 @@ public class ScopeTreeViewPanel extends JPanel implements Disposable {
 
   private class SortingExpandListener implements TreeWillExpandListener {
     @Override
-    public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
+    public void treeWillExpand(TreeExpansionEvent event) {
       final TreePath path = event.getPath();
       if (path == null) return;
       final PackageDependenciesNode node = (PackageDependenciesNode)path.getLastPathComponent();
@@ -953,6 +944,6 @@ public class ScopeTreeViewPanel extends JPanel implements Disposable {
     }
 
     @Override
-    public void treeWillCollapse(TreeExpansionEvent event) throws ExpandVetoException {}
+    public void treeWillCollapse(TreeExpansionEvent event) {}
   }
 }

@@ -8,6 +8,7 @@ import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter;
 import com.intellij.find.impl.FindInProjectUtil;
 import com.intellij.find.replaceInProject.ReplaceInProjectManager;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
 import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -90,13 +91,15 @@ public class FindUtil {
     String stringToFind = firstSearch || model.getStringToFind().contains("\n") ? "" : model.getStringToFind();
     boolean isSelectionUsed = false;
     if (!StringUtil.isEmpty(selectedText)) {
-      if (!multiline) {
+      if (!multiline || !replace) {
         stringToFind = selectedText;
         isSelectionUsed = true;
+      } else {
+        stringToFind = "";
       }
     }
     model.setReplaceState(replace);
-    boolean isGlobal = !multiline;
+    boolean isGlobal = !multiline || !replace;
     model.setStringToFind(isSelectionUsed
                           && model.isRegularExpressions()
                           && Registry.is("ide.find.escape.selected.text.for.regex")
@@ -336,7 +339,7 @@ public class FindUtil {
   public static void searchBack(final Project project, final Editor editor, @Nullable DataContext context) {
     FindManager findManager = FindManager.getInstance(project);
     if (!findManager.findWasPerformed() && !findManager.selectNextOccurrenceWasPerformed()) {
-      new IncrementalFindAction().getHandler().execute(editor, context);
+      new IncrementalFindAction().getHandler().execute(editor, null, context);
       return;
     }
 
@@ -370,7 +373,7 @@ public class FindUtil {
   public static boolean searchAgain(final Project project, final Editor editor, @Nullable DataContext context) {
     FindManager findManager = FindManager.getInstance(project);
     if (!findManager.findWasPerformed() && !findManager.selectNextOccurrenceWasPerformed()) {
-      new IncrementalFindAction().getHandler().execute(editor, context);
+      new IncrementalFindAction().getHandler().execute(editor, null, context);
       return false;
     }
 
@@ -1014,14 +1017,19 @@ public class FindUtil {
            ? findResult.getEndOffset() : Math.min(findResult.getStartOffset() + caretShiftFromSelectionStart, findResult.getEndOffset());
   }
 
-  public static void triggerUsedOptionsStats(@NotNull String prefix, @NotNull FindModel model) {
-    FUCounterUsageLogger logger = FUCounterUsageLogger.getInstance();
-    if (model.isCaseSensitive()) logger.logEvent("find", prefix + ".MatchCaseOn");
-    if (model.isWholeWordsOnly()) logger.logEvent("find", prefix + ".WholeWordsOn");
-    if (model.isRegularExpressions()) logger.logEvent("find", prefix + ".RegexOn");
-    if (model.getFileFilter() != null) logger.logEvent("find", prefix + ".FileFilterOn");
-    if (model.getSearchContext() != FindModel.SearchContext.ANY) {
-      logger.logEvent("find", prefix + ".Context." + model.getSearchContext());
-    }
+  public static void triggerUsedOptionsStats(@NotNull String type, @NotNull FindModel model) {
+    FeatureUsageData data = new FeatureUsageData().
+      addData("type", type).
+      addData("case_sensitive", model.isCaseSensitive()).
+      addData("whole_words_only", model.isWholeWordsOnly()).
+      addData("regular_expressions", model.isRegularExpressions()).
+      addData("with_file_filter", model.getFileFilter() != null).
+      addData("context", model.getSearchContext().name());
+    FUCounterUsageLogger.getInstance().logEvent("find", "search.session.started", data);
+  }
+
+  public static void triggerRegexHelpClicked(@Nullable String type) {
+    FeatureUsageData data = new FeatureUsageData().addData("type", StringUtil.notNullize(type, "Unknown"));
+    FUCounterUsageLogger.getInstance().logEvent("find", "regexp.help.clicked", data);
   }
 }

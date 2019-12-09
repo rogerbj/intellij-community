@@ -1,18 +1,20 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.ex;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.impl.EditorComponentImpl;
 import com.intellij.openapi.fileEditor.impl.EditorWindowHolder;
+import com.intellij.openapi.fileEditor.impl.EditorsSplitters;
 import com.intellij.util.ReflectionUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 
+import static com.intellij.util.ui.FocusUtil.findFocusableComponentIn;
+
 public class IdeFocusTraversalPolicy extends LayoutFocusTraversalPolicy {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy");
 
   @Override
   public Component getDefaultComponent(Container focusCycleRoot) {
@@ -24,6 +26,35 @@ public class IdeFocusTraversalPolicy extends LayoutFocusTraversalPolicy {
 
   public static JComponent getPreferredFocusedComponent(@NotNull final JComponent component) {
     return getPreferredFocusedComponent(component, null);
+  }
+
+  @Override
+  public Component getComponentAfter(Container aContainer, Component aComponent) {
+    Component after = super.getComponentAfter(aContainer, aComponent);
+    Component defaultFocusableComponent = findDefaultFocusedComponentIfSplitters(after);
+    if (defaultFocusableComponent != null) return defaultFocusableComponent;
+    if (after != null) return after.isFocusable() ? after : findFocusableComponentIn((JComponent)after, null);
+    return findFocusableComponentIn(aContainer, aComponent);
+  }
+
+  @Override
+  public Component getComponentBefore(Container aContainer, Component aComponent) {
+    Component before = super.getComponentBefore(aContainer, aComponent);
+    Component defaultFocusableComponent = findDefaultFocusedComponentIfSplitters(before);
+    if (defaultFocusableComponent != null) return defaultFocusableComponent;
+    if (before != null) return before.isFocusable() ? before : findFocusableComponentIn((JComponent)before, null);
+    return findFocusableComponentIn(aContainer, aComponent);
+  }
+
+  @Nullable
+  private static Component findDefaultFocusedComponentIfSplitters(Component componentToSearchInto) {
+    if (componentToSearchInto instanceof EditorsSplitters) {
+      JComponent defaultFocusableComponent = EditorsSplitters.findDefaultComponentInSplitters();
+      if (defaultFocusableComponent != null) {
+        return defaultFocusableComponent;
+      }
+    }
+    return null;
   }
 
   /**

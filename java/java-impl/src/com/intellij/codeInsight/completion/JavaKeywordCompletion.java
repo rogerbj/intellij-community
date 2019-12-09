@@ -344,7 +344,7 @@ public class JavaKeywordCompletion {
     TailType tailType = TailTypes.forSwitchLabel(switchBlock);
     for (PsiField field : switchType.getAllFields()) {
       String name = field.getName();
-      if (!(field instanceof PsiEnumConstant) || used.contains(CompletionUtil.getOriginalOrSelf(field)) || name == null) {
+      if (!(field instanceof PsiEnumConstant) || used.contains(CompletionUtil.getOriginalOrSelf(field))) {
         continue;
       }
       String prefix = "case ";
@@ -546,6 +546,9 @@ public class JavaKeywordCompletion {
           PsiTreeUtil.getParentOfType(myPosition, PsiCodeBlock.class, true, PsiMember.class) == null) {
         addKeyword(new OverridableSpace(createKeyword(PsiKeyword.CLASS), TailType.HUMBLE_SPACE_BEFORE_WORD));
         addKeyword(new OverridableSpace(createKeyword(PsiKeyword.INTERFACE), TailType.HUMBLE_SPACE_BEFORE_WORD));
+        if (PsiUtil.getLanguageLevel(myPosition).isAtLeast(LanguageLevel.JDK_14_PREVIEW)) {
+          addKeyword(new OverridableSpace(createKeyword(PsiKeyword.RECORD), TailType.HUMBLE_SPACE_BEFORE_WORD));
+        }
         if (PsiUtil.isLanguageLevel5OrHigher(myPosition)) {
           addKeyword(new OverridableSpace(createKeyword(PsiKeyword.ENUM), TailType.INSERT_SPACE));
         }

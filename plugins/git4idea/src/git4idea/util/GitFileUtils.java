@@ -90,7 +90,7 @@ public class GitFileUtils {
   public static void addFiles(@NotNull Project project, @NotNull VirtualFile root, @NotNull Collection<? extends VirtualFile> files)
     throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkFiles(root, files)) {
-      addPaths(project, root, paths, false);
+      addPathsImpl(project, root, paths, false, true);
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, files);
   }
@@ -98,7 +98,7 @@ public class GitFileUtils {
   public static void addFilesForce(@NotNull Project project, @NotNull VirtualFile root, @NotNull Collection<? extends VirtualFile> files)
     throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkFiles(root, files)) {
-      addPaths(project, root, paths, true);
+      addPathsImpl(project, root, paths, true, false);
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, files);
   }
@@ -138,14 +138,19 @@ public class GitFileUtils {
   }
 
   public static void addPaths(@NotNull Project project, @NotNull VirtualFile root,
-                              @NotNull Collection<? extends FilePath> files) throws VcsException {
-    addPaths(project, root, files, false);
+                              @NotNull Collection<? extends FilePath> paths) throws VcsException {
+    addPaths(project, root, paths, false);
   }
 
   public static void addPaths(@NotNull Project project, @NotNull VirtualFile root,
                               @NotNull Collection<? extends FilePath> files, boolean force) throws VcsException {
+    addPaths(project, root, files, force, true);
+  }
+
+  public static void addPaths(@NotNull Project project, @NotNull VirtualFile root,
+                              @NotNull Collection<? extends FilePath> files, boolean force, boolean filterOutIgnored) throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkPaths(root, files)) {
-      addPaths(project, root, paths, force);
+      addPathsImpl(project, root, paths, force, filterOutIgnored);
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
     if (force) {
@@ -156,7 +161,7 @@ public class GitFileUtils {
   public static void addPathsForce(@NotNull Project project, @NotNull VirtualFile root,
                                    @NotNull Collection<? extends FilePath> files) throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkPaths(root, files)) {
-      addPaths(project, root, paths, true);
+      addPathsImpl(project, root, paths, true, false);
     }
     updateUntrackedFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
     updateIgnoredFilesHolderOnFileAdd(project, root, getVirtualFilesFromFilePaths(files));
@@ -174,9 +179,9 @@ public class GitFileUtils {
     return files;
   }
 
-  private static void addPaths(@NotNull Project project, @NotNull VirtualFile root,
-                               @NotNull List<String> paths, boolean force) throws VcsException {
-    if (!force) {
+  private static void addPathsImpl(@NotNull Project project, @NotNull VirtualFile root,
+                                   @NotNull List<String> paths, boolean force, boolean filterOutIgnored) throws VcsException {
+    if (filterOutIgnored) {
       paths = excludeIgnoredFiles(project, root, paths);
       if (paths.isEmpty()) return;
     }
@@ -225,6 +230,12 @@ public class GitFileUtils {
                                       @NotNull String relativePath) throws VcsException {
     GitBinaryHandler h = new GitBinaryHandler(project, root, GitCommand.CAT_FILE);
     h.setSilent(true);
+    addTextConvParameters(project, h, true);
+    h.addParameters(revisionOrBranch + ":" + relativePath);
+    return h.run();
+  }
+
+  public static void addTextConvParameters(@NotNull Project project, @NotNull GitBinaryHandler h, boolean addp) {
     if (CAT_FILE_SUPPORTS_TEXTCONV.existsIn(project) &&
         Registry.is("git.read.content.with.textconv")) {
       h.addParameters("--textconv");
@@ -233,10 +244,8 @@ public class GitFileUtils {
              Registry.is("git.read.content.with.filters")) {
       h.addParameters("--filters");
     }
-    else {
+    else if (addp) {
       h.addParameters("-p");
     }
-    h.addParameters(revisionOrBranch + ":" + relativePath);
-    return h.run();
   }
 }

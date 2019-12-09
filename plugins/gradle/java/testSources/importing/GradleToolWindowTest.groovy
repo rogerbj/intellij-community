@@ -4,7 +4,6 @@ package org.jetbrains.plugins.gradle.importing
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.externalSystem.importing.ImportSpec
 import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
-import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
 import com.intellij.openapi.externalSystem.service.project.ProjectDataManager
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl
 import com.intellij.openapi.externalSystem.view.ExternalProjectsViewImpl
@@ -68,7 +67,7 @@ version '1.0-SNAPSHOT'
   @Test
   void testDotInModuleName() {
     createSettingsFile("""
-rootProject.name='rooot'
+rootProject.name='rooot.dot'
 include ':child1'
 include ':child2'
 include ':child2:dot.child'
@@ -270,11 +269,20 @@ project(':string-utils') {
     doTest()
   }
 
+  @Test
+  void testDuplicatingProjectLeafNames() {
+    createSettingsFile("""
+rootProject.name = 'rootProject'
+include 'p1', 'p2', 'p1:sub:sp1', 'p2:p2sub:sub:sp2'
+include 'p1:leaf', 'p2:leaf'
+""")
+
+    doTest()
+  }
+
   @Override
   protected ImportSpec createImportSpec() {
-    ImportSpecBuilder importSpecBuilder = new ImportSpecBuilder(myProject, getExternalSystemId())
-      .use(ProgressExecutionMode.MODAL_SYNC)
-      .forceWhenUptodate();
+    ImportSpecBuilder importSpecBuilder = new ImportSpecBuilder(super.createImportSpec())
     if (isPreview) {
       importSpecBuilder.usePreviewMode()
     }
@@ -307,7 +315,7 @@ project(':string-utils') {
     assertSameLinesWithFile(path, sw.toString())
   }
 
-  private String getPath() {
+  protected String getPath() {
     def communityPath = PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/'.charAt(0))
     def testName = getTestName(true)
     testName = testName.substring(0, testName.indexOf("_"))

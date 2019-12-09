@@ -38,6 +38,8 @@ import com.intellij.xdebugger.frame.presentation.XRegularValuePresentation;
 import com.intellij.xdebugger.frame.presentation.XValuePresentation;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
 import com.intellij.xdebugger.impl.frame.XValueWithInlinePresentation;
+import com.intellij.xdebugger.impl.pinned.items.PinToTopMemberValue;
+import com.intellij.xdebugger.impl.pinned.items.PinToTopParentValue;
 import com.intellij.xdebugger.impl.ui.XValueTextProvider;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
 import org.jetbrains.annotations.NotNull;
@@ -53,11 +55,15 @@ import java.util.Set;
 /**
 * @author egor
 */
-public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XValueTextProvider, XValueWithInlinePresentation {
+public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XValueTextProvider, XValueWithInlinePresentation,
+                                                      PinToTopParentValue, PinToTopMemberValue {
   private static final Logger LOG = Logger.getInstance(JavaValue.class);
 
+  private final boolean myCanBePinned;
   private final JavaValue myParent;
+  @NotNull
   private final ValueDescriptorImpl myValueDescriptor;
+  @NotNull
   private final EvaluationContextImpl myEvaluationContext;
   private final NodeManagerImpl myNodeManager;
   private final boolean myContextSet;
@@ -82,6 +88,24 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     myEvaluationContext = evaluationContext;
     myNodeManager = nodeManager;
     myContextSet = contextSet;
+    myCanBePinned = doComputeCanBePinned();
+  }
+
+  @Nullable
+  @Override
+  public String getTypeName() {
+    return myValueDescriptor.getDeclaredType();
+  }
+
+  @Override
+  public boolean canBePinned() {
+    return myCanBePinned;
+  }
+  private boolean doComputeCanBePinned() {
+    if(myValueDescriptor instanceof ArrayElementDescriptor) {
+      return false;
+    }
+    return myParent != null;
   }
 
   public static JavaValue create(JavaValue parent,
@@ -165,19 +189,30 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
             if (!fullEvaluatorSet && lastRenderer instanceof CompoundNodeRenderer) {
               fullEvaluatorSet = setFullValueEvaluator(((CompoundNodeRenderer)lastRenderer).getLabelRenderer());
             }
-            if (!fullEvaluatorSet && myValueDescriptor.getValueText().length() > XValueNode.MAX_VALUE_LENGTH) {
-              node.setFullValueEvaluator(new JavaFullValueEvaluator(myEvaluationContext) {
-                @Override
-                public void evaluate(@NotNull final XFullValueEvaluationCallback callback) {
-                  final ValueDescriptorImpl fullValueDescriptor = myValueDescriptor.getFullValueDescriptor();
-                  fullValueDescriptor.updateRepresentation(myEvaluationContext, new DescriptorLabelListener() {
-                    @Override
-                    public void labelChanged() {
-                      callback.evaluated(fullValueDescriptor.getValueText());
-                    }
-                  });
-                }
-              });
+            if (!fullEvaluatorSet) {
+              String text = myValueDescriptor.getValueText();
+              if (text.length() > XValueNode.MAX_VALUE_LENGTH) {
+                node.setFullValueEvaluator(new JavaFullValueEvaluator(myEvaluationContext) {
+                  @Override
+                  public void evaluate(@NotNull final XFullValueEvaluationCallback callback) {
+                    final ValueDescriptorImpl fullValueDescriptor = myValueDescriptor.getFullValueDescriptor();
+                    fullValueDescriptor.updateRepresentation(myEvaluationContext, new DescriptorLabelListener() {
+                      @Override
+                      public void labelChanged() {
+                        callback.evaluated(fullValueDescriptor.getValueText());
+                      }
+                    });
+                  }
+                });
+              }
+              else if (StringUtil.containsLineBreak(text)) {
+                node.setFullValueEvaluator(new XFullValueEvaluator() {
+                  @Override
+                  public void startEvaluation(@NotNull XFullValueEvaluationCallback callback) {
+                    callback.evaluated(text);
+                  }
+                });
+              }
             }
             node.setPresentation(nodeIcon, presentation, myValueDescriptor.isExpandable());
           }

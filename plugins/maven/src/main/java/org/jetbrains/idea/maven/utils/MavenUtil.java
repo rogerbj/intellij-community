@@ -47,7 +47,6 @@ import com.intellij.util.text.VersionComparatorUtil;
 import com.intellij.util.xml.NanoXmlBuilder;
 import com.intellij.util.xml.NanoXmlUtil;
 import gnu.trove.THashSet;
-import icons.MavenIcons;
 import org.jdom.Element;
 import org.jdom.JDOMException;
 import org.jdom.Namespace;
@@ -80,6 +79,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -91,6 +91,7 @@ import static com.intellij.openapi.util.io.JarUtil.getJarAttribute;
 import static com.intellij.openapi.util.io.JarUtil.loadProperties;
 import static com.intellij.openapi.util.text.StringUtil.*;
 import static com.intellij.util.xml.NanoXmlBuilder.stop;
+import static icons.ExternalSystemIcons.Task;
 
 public class MavenUtil {
   @ApiStatus.Experimental
@@ -153,11 +154,11 @@ public class MavenUtil {
     }
   }
 
-  public static void invokeAndWait(Project p, Runnable r) {
+  public static void invokeAndWait(@NotNull Project p, @NotNull Runnable r) {
     invokeAndWait(p, ModalityState.defaultModalityState(), r);
   }
 
-  public static void invokeAndWait(final Project p, final ModalityState state, final Runnable r) {
+  public static void invokeAndWait(final Project p, final ModalityState state, @NotNull Runnable r) {
     if (isNoBackgroundMode()) {
       r.run();
     }
@@ -185,11 +186,11 @@ public class MavenUtil {
     }
   }
 
-  public static void invokeAndWaitWriteAction(Project p, final Runnable r) {
+  public static void invokeAndWaitWriteAction(@NotNull Project p, @NotNull Runnable r) {
     invokeAndWait(p, () -> ApplicationManager.getApplication().runWriteAction(r));
   }
 
-  public static void runDumbAware(final Project project, final Runnable r) {
+  public static void runDumbAware(@NotNull Project project, @NotNull Runnable r) {
     if (DumbService.isDumbAware(r)) {
       r.run();
     }
@@ -198,20 +199,20 @@ public class MavenUtil {
     }
   }
 
-  public static void runWhenInitialized(@NotNull Project project, @NotNull Runnable r) {
+  public static void runWhenInitialized(@NotNull Project project, @NotNull Runnable runnable) {
     if (project.isDisposed()) return;
 
     if (isNoBackgroundMode()) {
-      r.run();
+      runnable.run();
       return;
     }
 
     if (!project.isInitialized()) {
-      StartupManager.getInstance(project).registerPostStartupActivity(DisposeAwareRunnable.create(r, project));
+      StartupManager.getInstance(project).runAfterOpened(runnable);
       return;
     }
 
-    runDumbAware(project, r);
+    runDumbAware(project, runnable);
   }
 
   public static boolean isNoBackgroundMode() {
@@ -453,10 +454,23 @@ public class MavenUtil {
     if (errorEx[0] != null) throw errorEx[0];
   }
 
-  public static MavenTaskHandler runInBackground(final Project project,
-                                                 final String title,
+
+  @NotNull
+  public static MavenTaskHandler runInBackground(@NotNull final Project project,
+                                                 @NotNull final String title,
                                                  final boolean cancellable,
-                                                 final MavenTask task) {
+                                                 @NotNull final MavenTask task) {
+    return runInBackground(project, title, cancellable, task, null);
+
+  }
+
+  @NotNull
+  public static MavenTaskHandler runInBackground(@NotNull final Project project,
+                                                 @NotNull final String title,
+                                                 final boolean cancellable,
+                                                 @NotNull final MavenTask task,
+                                                 @Nullable("null means application pooled thread")
+                                                     ExecutorService executorService) {
     MavenProjectsManager manager = MavenProjectsManager.getInstance(project);
 
     final MavenProgressIndicator indicator = new MavenProgressIndicator(manager::getSyncConsole);
@@ -481,7 +495,12 @@ public class MavenUtil {
       };
     }
     else {
-      final Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(runnable);
+      final Future<?> future;
+      if (executorService == null) {
+        future = ApplicationManager.getApplication().executeOnPooledThread(runnable);
+      } else {
+        future = executorService.submit(runnable);
+      }
       final MavenTaskHandler handler = new MavenTaskHandler() {
         @Override
         public void waitFor() {
@@ -837,7 +856,7 @@ public class MavenUtil {
 
     List<LookupElement> res = new ArrayList<>(goals.size());
     for (String goal : goals) {
-      res.add(LookupElementBuilder.create(goal).withIcon(MavenIcons.Phase));
+      res.add(LookupElementBuilder.create(goal).withIcon(Task));
     }
 
     return res;

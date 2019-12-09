@@ -540,11 +540,6 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
-  // PY-20071
-  public void testNonexistentLoggerMethod() {
-    doMultiFileTest();
-  }
-
   // PY-21224
   public void testSixWithMetaclass() {
     doTest();
@@ -638,6 +633,11 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
   // PY-26368
   public void testForwardReferencesInClassBody() {
     doTest();
+  }
+
+  // PY-7251
+  public void testImportHighlightLevel() {
+    doMultiFileTest();
   }
 
   // PY-26243
@@ -799,6 +799,26 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
                          "        self.__data = None\n" +
                          "    def test(self):\n" +
                          "        return self.__data")
+    );
+  }
+
+  // PY-36008
+  public void testTypedDict() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON38,
+      () -> doTestByText("from typing import TypedDict\n" +
+                         "class X(TypedDict):\n" +
+                         "    x: str\n" +
+                         "x = X(x='str')\n" +
+                         "x.clear()\n" +
+                         "x['x'] = 'rts'\n" +
+                         "x.<warning descr=\"Unresolved attribute reference 'clea' for class 'X'\">clea</warning>()\n" +
+                         "x.<warning descr=\"Unresolved attribute reference 'x' for class 'X'\">x</warning>()\n" +
+                         "x1: X = {'x1': 'str'}\n" +
+                         "x1['x1'] = 'rts'\n" +
+                         "x1.clear()\n" +
+                         "x1.<warning descr=\"Unresolved attribute reference 'clea' for class 'X'\">clea</warning>()\n" +
+                         "x1.<warning descr=\"Unresolved attribute reference 'x' for class 'X'\">x</warning>()")
     );
   }
 

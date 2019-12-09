@@ -106,7 +106,7 @@ public class ReplaceCastWithVariableAction extends PsiElementBaseIntentionAction
 
       final PsiCodeBlock methodBody = method.getBody();
       if (variable != null && methodBody != null &&
-          variable.getName() != null && resolveHelper.resolveReferencedVariable(variable.getName(), expression) == variable &&
+          resolveHelper.resolveReferencedVariable(variable.getName(), expression) == variable &&
           !isChangedBetween(castedVar, methodBody, occurrence, expression) &&
           !isChangedBetween(variable, methodBody, occurrence, expression)) {
         return variable;
@@ -132,7 +132,7 @@ public class ReplaceCastWithVariableAction extends PsiElementBaseIntentionAction
         private boolean inScope;
 
         @Override
-        public void visitElement(PsiElement element) {
+        public void visitElement(@NotNull PsiElement element) {
           if (element == start) {
             inScope = true;
           }

@@ -108,13 +108,8 @@ public class JpsProjectLoader extends JpsLoaderBase {
       }
     }
     catch (IOException ignored) { }
-    return dir.getParent().getFileName().toString();
-  }
-
-  @Nullable
-  @Override
-  protected Element loadRootElement(@NotNull Path file) {
-    return super.loadRootElement(file);
+    Path parent = dir.getParent();
+    return (parent == null ? dir : parent).getFileName().toString();
   }
 
   @Nullable

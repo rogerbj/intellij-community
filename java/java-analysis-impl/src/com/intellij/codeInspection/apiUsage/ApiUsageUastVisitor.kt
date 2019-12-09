@@ -93,7 +93,10 @@ class ApiUsageUastVisitor(private val apiUsageProcessor: ApiUsageProcessor) : Ab
       //UAST for Kotlin produces UQualifiedReferenceExpression with UCallExpression as selector
       return true
     }
-    val resolved = node.resolve()
+    var resolved = node.resolve()
+    if (resolved == null) {
+      resolved = node.selector.tryResolve()
+    }
     if (resolved is PsiModifierListOwner) {
       apiUsageProcessor.processReference(node.selector, resolved, node.receiver)
     }
@@ -337,7 +340,8 @@ class ApiUsageUastVisitor(private val apiUsageProcessor: ApiUsageProcessor) : Ab
       //First expression is not super() => the super() is implicit.
       return true
     }
-    return firstExpression.methodName != "super"
+    val methodName = firstExpression.methodIdentifier?.name ?: firstExpression.methodName
+    return methodName != "super" && methodName != "this"
   }
 
   private fun checkMethodOverriding(node: UMethod) {

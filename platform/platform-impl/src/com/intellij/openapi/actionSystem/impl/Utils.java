@@ -76,9 +76,10 @@ public class Utils{
                                                  @NotNull ActionGroup group,
                                                  PresentationFactory presentationFactory,
                                                  @NotNull DataContext context,
-                                                 String place, ActionGroupVisitor visitor) {
+                                                 String place, ActionGroupVisitor visitor,
+                                                 int timeoutMs) {
     return new ActionUpdater(isInModalContext, presentationFactory, context, place, false, false, false, visitor)
-      .expandActionGroupWithTimeout(group, group instanceof CompactActionGroup);
+      .expandActionGroupWithTimeout(group, group instanceof CompactActionGroup, timeoutMs);
   }
 
   private static final boolean DO_FULL_EXPAND = Boolean.getBoolean("actionSystem.use.full.group.expand"); // for tests and debug
@@ -184,10 +185,12 @@ public class Utils{
   }
 
   public interface ActionGroupVisitor {
+    void begin();
+
     boolean enterNode(@NotNull ActionGroup groupNode);
     void visitLeaf(@NotNull AnAction act);
     void leaveNode();
-    Component getCustomComponent(@NotNull AnAction action);
+    @Nullable Component getCustomComponent(@NotNull AnAction action);
 
     boolean beginUpdate(@NotNull AnAction action, AnActionEvent e);
     void endUpdate(@NotNull AnAction action);

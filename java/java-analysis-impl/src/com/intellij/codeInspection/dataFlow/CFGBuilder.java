@@ -26,15 +26,15 @@ import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.siyeh.ig.psiutils.VariableAccessUtils;
 import one.util.streamex.IntStreamEx;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
 
 /**
@@ -266,26 +266,6 @@ public class CFGBuilder {
    */
   public CFGBuilder isInstance(PsiMethodCallExpression anchor) {
     return add(new InstanceofInstruction(anchor));
-  }
-
-  /**
-   * Generate instructions to invoke the method associated with given method call assuming that method arguments and qualifier
-   * are already on stack. If vararg call is specified, vararg arguments should be placed as is, without packing into array,
-   * so number of arguments may differ from number of method parameters.
-   * <p>
-   * Stack before: ... qualifier arg1 arg2 ... argN
-   * <p>
-   * Stack after: ... return value
-   * <p>
-   * Note that qualifier must be present even if method is static (use {@link #pushUnknown()}). Similarly, return value will be pushed
-   * on stack always, even if method is void.
-   *
-   * @param call a method call to generate invocation upon
-   * @return this builder
-   */
-  public CFGBuilder invoke(PsiMethodCallExpression call) {
-    myAnalyzer.addBareCall(call, call.getMethodExpression());
-    return this;
   }
 
   /**
@@ -648,16 +628,7 @@ public class CFGBuilder {
    */
   public CFGBuilder invokeFunction(int argCount, @Nullable PsiExpression functionalExpression, Nullability resultNullability) {
     PsiExpression stripped = PsiUtil.deparenthesizeExpression(functionalExpression);
-    if (stripped instanceof PsiLambdaExpression) {
-      PsiLambdaExpression lambda = (PsiLambdaExpression)stripped;
-      PsiParameter[] parameters = lambda.getParameterList().getParameters();
-      if (parameters.length == argCount && lambda.getBody() != null) {
-        StreamEx.ofReversed(parameters).forEach(p -> assignTo(p).pop());
-        inlineLambda(lambda, resultNullability);
-        StreamEx.of(parameters).forEach(p -> add(new FlushVariableInstruction(getFactory().getVarFactory().createVariableValue(p))));
-        return this;
-      }
-    }
+    if (tryInlineLambda(argCount, functionalExpression, resultNullability, () -> {})) return this;
     if (stripped instanceof PsiMethodReferenceExpression) {
       PsiMethodReferenceExpression methodRef = (PsiMethodReferenceExpression)stripped;
       JavaResolveResult resolveResult = methodRef.advancedResolve(false);
@@ -688,7 +659,7 @@ public class CFGBuilder {
         }
       }
       PsiElement qualifier = methodRef.getQualifier();
-      if(qualifier instanceof PsiTypeElement && ((PsiTypeElement)qualifier).getType() instanceof PsiArrayType) {
+      if (qualifier instanceof PsiTypeElement && ((PsiTypeElement)qualifier).getType() instanceof PsiArrayType) {
         // like String[]::new
         splice(argCount)
           .push(getFactory().createTypeValue(((PsiTypeElement)qualifier).getType(), Nullability.NOT_NULL));
@@ -713,6 +684,38 @@ public class CFGBuilder {
       pushUnknown();
     }
     return this;
+  }
+
+  public boolean tryInlineLambda(int argCount,
+                                 @Nullable PsiExpression functionalExpression,
+                                 Nullability resultNullability,
+                                 Runnable pushArgs) {
+    PsiExpression stripped = PsiUtil.deparenthesizeExpression(functionalExpression);
+    if (stripped instanceof PsiLambdaExpression) {
+      PsiLambdaExpression lambda = (PsiLambdaExpression)stripped;
+      PsiParameter[] parameters = lambda.getParameterList().getParameters();
+      if (parameters.length == argCount && lambda.getBody() != null) {
+        pushArgs.run();
+        StreamEx.ofReversed(parameters).forEach(p -> assignTo(p).pop());
+        inlineLambda(lambda, resultNullability);
+        StreamEx.of(parameters).forEach(p -> add(new FlushVariableInstruction(getFactory().getVarFactory().createVariableValue(p))));
+        return true;
+      }
+    }
+    PsiLocalVariable localFn = ExpressionUtils.resolveLocalVariable(stripped);
+    if (localFn != null) {
+      PsiLambdaExpression localLambda =
+        ObjectUtils.tryCast(PsiUtil.skipParenthesizedExprDown(localFn.getInitializer()), PsiLambdaExpression.class);
+      if (myAnalyzer.wasAdded(localLambda)) {
+        PsiElement scope = PsiUtil.getVariableCodeBlock(localFn, null);
+        List<PsiReferenceExpression> refs = VariableAccessUtils.getVariableReferences(localFn, scope);
+        if (ContainerUtil.getOnlyItem(refs) == stripped) {
+          myAnalyzer.removeLambda(localLambda);
+          return tryInlineLambda(argCount, localLambda, resultNullability, pushArgs);
+        }
+      }
+    }
+    return false;
   }
 
   private boolean processKnownMethodReference(int argCount, PsiMethodReferenceExpression methodRef, PsiMethod method) {
@@ -756,7 +759,7 @@ public class CFGBuilder {
    * @param resultNullability a required return value nullability
    * @return this builder
    */
-  public CFGBuilder inlineLambda(PsiLambdaExpression lambda, Nullability resultNullability) {
+  private CFGBuilder inlineLambda(PsiLambdaExpression lambda, Nullability resultNullability) {
     PsiElement body = lambda.getBody();
     PsiExpression expression = LambdaUtil.extractSingleExpressionFromBody(body);
     if (expression != null) {

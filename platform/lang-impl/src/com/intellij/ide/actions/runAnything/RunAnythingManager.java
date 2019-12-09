@@ -17,6 +17,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.Objects;
 
 public class RunAnythingManager {
   private static final String LOCATION_SETTINGS_KEY = "run.anything.popup";
@@ -48,11 +49,12 @@ public class RunAnythingManager {
     if (searchText != null && !searchText.isEmpty()) {
       myRunAnythingUI.getSearchField().setText(searchText);
     }
+
+    predefineSelectedText(searchText);
+
     if (selectSearchText) {
       myRunAnythingUI.getSearchField().selectAll();
     }
-
-    predefineSelectedText(searchText);
 
     myBalloon = JBPopupFactory.getInstance().createComponentPopupBuilder(myRunAnythingUI, myRunAnythingUI.getSearchField())
       .setProject(myProject)
@@ -61,7 +63,10 @@ public class RunAnythingManager {
       .setRequestFocus(true)
       .setCancelKeyEnabled(false)
       .setCancelCallback(() -> {
-        saveSearchText();
+        if (isShown() && !Objects.equals(myRunAnythingUI.getUserInputText(), searchText)) {
+          saveSearchText();
+        }
+
         return true;
       })
       .addUserData("SIMPLE_WINDOW")
@@ -101,16 +106,11 @@ public class RunAnythingManager {
 
     if (StringUtil.isNotEmpty(searchText)) {
       myRunAnythingUI.getSearchField().setText(searchText);
-      myRunAnythingUI.getSearchField().selectAll();
     }
   }
 
   private void saveSearchText() {
-    if (!isShown()) {
-      return;
-    }
-
-    mySelectedText = myRunAnythingUI.getSearchField().getText();
+    mySelectedText = myRunAnythingUI.getUserInputText();
   }
 
   private void calcPositionAndShow(Project project, JBPopup balloon) {

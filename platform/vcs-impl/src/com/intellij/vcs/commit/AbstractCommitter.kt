@@ -11,8 +11,8 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.ProgressManager.progress
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vcs.*
@@ -144,9 +144,7 @@ abstract class AbstractCommitter(
     }
 
     indicator.text = "Waiting for VCS background tasks to finish..."
-    while (!endSemaphore.waitFor(20)) {
-      indicator.checkCanceled()
-    }
+    ProgressIndicatorUtils.awaitWithCheckCanceled(endSemaphore, indicator)
   }
 
   private fun doRunCommit() {
@@ -213,5 +211,11 @@ abstract class AbstractCommitter(
 
     @JvmStatic
     fun collectErrors(exceptions: List<VcsException>): List<VcsException> = exceptions.filterNot { it.isWarning }
+
+    internal fun progress(message: String) =
+      ProgressManager.getInstance().progressIndicator?.apply {
+        text = message
+        text2 = ""
+      }
   }
 }

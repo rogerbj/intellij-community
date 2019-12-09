@@ -44,7 +44,7 @@ import java.util.*;
  * @author mike
  */
 public class GenerateDelegateHandler implements LanguageCodeInsightActionHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateDelegateHandler");
+  private static final Logger LOG = Logger.getInstance(GenerateDelegateHandler.class);
   private boolean myToCopyJavaDoc;
 
   @Override
@@ -125,7 +125,7 @@ public class GenerateDelegateHandler implements LanguageCodeInsightActionHandler
 
         final PsiParameter[] parameters = method.getParameterList().getParameters();
         for (PsiParameter parameter : parameters) {
-          if (name.equals(parameter.getName())) {
+          if (parameter.getName().equals(name)) {
             call.append("this.");
             break;
           }

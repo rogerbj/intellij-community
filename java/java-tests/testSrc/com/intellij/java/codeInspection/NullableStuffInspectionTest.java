@@ -69,6 +69,11 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     doTest();
   }
 
+  public void testAnnotatingArrayAmbiguous() {
+    DataFlowInspection8Test.setupAmbiguousAnnotations("withTypeUse", myFixture);
+    doTest();
+  }
+
   public void testProblems2() { doTest(); }
   public void testNullableFieldNotnullParam() { doTest(); }
   public void testNotNullFieldNullableParam() { doTest(); }
@@ -79,6 +84,7 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
   public void testGetterSetterProblems() { doTest(); }
   public void testNonTrivialGettersSetters() { doTest(); }
   public void testGetterSetterFieldMismatch() { doTest(); }
+  public void testAbstractMapAndSortedMap() { doTest(); }
 
   public void testOverriddenMethods() {
     myInspection.REPORT_ANNOTATION_NOT_PROPAGATED_TO_OVERRIDERS = true;
@@ -279,6 +285,20 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     myInspection.REPORT_ANNOTATION_NOT_PROPAGATED_TO_OVERRIDERS = true;
     doTest();
     myFixture.launchAction(myFixture.findSingleIntention("Annotate overridden method parameters"));
+    myFixture.checkResultByFile(getTestName(false) + "_after.java");
+  }
+
+  public void testRemoveMethodAnnotationRemovesOverriders() {
+    myInspection.REPORT_ANNOTATION_NOT_PROPAGATED_TO_OVERRIDERS = true;
+    doTest();
+    myFixture.launchAction(myFixture.findSingleIntention("Remove annotation"));
+    myFixture.checkResultByFile(getTestName(false) + "_after.java");
+  }
+
+  public void testRemoveParameterAnnotationRemovesOverriders() {
+    myInspection.REPORT_ANNOTATION_NOT_PROPAGATED_TO_OVERRIDERS = true;
+    doTest();
+    myFixture.launchAction(myFixture.findSingleIntention("Remove annotation"));
     myFixture.checkResultByFile(getTestName(false) + "_after.java");
   }
 

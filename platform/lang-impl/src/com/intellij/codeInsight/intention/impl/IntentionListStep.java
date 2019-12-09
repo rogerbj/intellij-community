@@ -7,6 +7,8 @@ import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.AbstractEmptyIntentionAction;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.IntentionActionDelegate;
+import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewPopupUpdateProcessor;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbService;
@@ -30,7 +32,7 @@ import java.util.stream.Collectors;
 * @author cdr
 */
 public class IntentionListStep implements ListPopupStep<IntentionActionWithTextCaching>, SpeedSearchFilter<IntentionActionWithTextCaching> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.intention.impl.IntentionListStep");
+  private static final Logger LOG = Logger.getInstance(IntentionListStep.class);
 
   private final CachedIntentions myCachedIntentions;
   @Nullable
@@ -74,10 +76,22 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
     }
 
     if (hasSubstep(action)) {
+      closeIntentionPreviewPopup();
+
       return getSubStep(action, action.getToolName());
     }
 
     return FINAL_CHOICE;
+  }
+
+  private static void closeIntentionPreviewPopup() {
+    ApplicationManager.getApplication().invokeLater(() -> {
+      List<JBPopup> popups = StackingPopupDispatcher.getInstance().getPopupStream()
+        .filter(popup -> popup.getUserData(IntentionPreviewPopupUpdateProcessor.IntentionPreviewPopupKey.class) != null)
+        .collect(Collectors.toList());
+
+      popups.forEach(popup -> { popup.cancel(); });
+    });
   }
 
   @Override
@@ -88,7 +102,9 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
   private void applyAction(@NotNull IntentionActionWithTextCaching cachedAction) {
     myFinalRunnable = () -> {
       HintManager.getInstance().hideAllHints();
-      if (myProject.isDisposed() || myEditor != null && (myEditor.isDisposed() || !myEditor.getComponent().isShowing())) return;
+      if (myProject.isDisposed()) return;
+      if (myEditor != null && (myEditor.isDisposed() || (!myEditor.getComponent().isShowing() && !ApplicationManager.getApplication().isUnitTestMode()))) return;
+
       if (DumbService.isDumb(myProject) && !DumbService.isDumbAware(cachedAction)) {
         DumbService.getInstance(myProject).showDumbModeNotification(cachedAction.getText() + " is not available during indexing");
         return;

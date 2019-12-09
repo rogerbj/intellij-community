@@ -35,6 +35,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.PathUtil
+import com.intellij.util.messages.Topic
 import com.intellij.webcore.packaging.PackagesNotificationPanel
 import com.jetbrains.python.packaging.ui.PyPackageManagementService
 import com.jetbrains.python.psi.LanguageLevel
@@ -51,7 +52,7 @@ import java.nio.file.Paths
  * @author vlan
  */
 
-val BASE_DIR = Key.create<Path>("PYTHON_BASE_PATH")
+val BASE_DIR: Key<Path> = Key.create("PYTHON_BASE_PATH")
 
 fun findAllPythonSdks(baseDir: Path?): List<Sdk> {
   val context: UserDataHolder = UserDataHolderBase()
@@ -63,7 +64,7 @@ fun findAllPythonSdks(baseDir: Path?): List<Sdk> {
 }
 
 fun findBaseSdks(existingSdks: List<Sdk>, module: Module?, context: UserDataHolder): List<Sdk> {
-  val existing = existingSdks.filter { it.sdkType is PythonSdkUtil && it.isSystemWide }
+  val existing = existingSdks.filter { it.sdkType is PythonSdkType && it.isSystemWide }
   val detected = detectSystemWideSdks(module, existingSdks, context)
   return existing + detected
 }
@@ -162,13 +163,21 @@ fun PyDetectedSdk.setupAssociated(existingSdks: List<Sdk>, associatedModulePath:
 
 var Module.pythonSdk: Sdk?
   get() = PythonSdkUtil.findPythonSdk(this)
-  set(value) = ModuleRootModificationUtil.setModuleSdk(this, value)
+  set(value) {
+    ModuleRootModificationUtil.setModuleSdk(this, value)
+    fireActivePythonSdkChanged(value)
+  }
+
+fun Module.fireActivePythonSdkChanged(value: Sdk?): Unit = project
+  .messageBus
+  .syncPublisher(ACTIVE_PYTHON_SDK_TOPIC)
+  .activeSdkChanged(this, value)
 
 var Project.pythonSdk: Sdk?
   get() {
     val sdk = ProjectRootManager.getInstance(this).projectSdk
     return when (sdk?.sdkType) {
-      is PythonSdkUtil -> sdk
+      is PythonSdkType -> sdk
       else -> null
     }
   }
@@ -272,4 +281,13 @@ private fun filterSuggestedPaths(suggestedPaths: MutableCollection<String>,
     .sortedWith(compareBy<PyDetectedSdk>({ it.isAssociatedWithModule(module) },
                                          { it.homePath }).reversed())
     .toList()
+}
+
+val ACTIVE_PYTHON_SDK_TOPIC: Topic<ActiveSdkListener> = Topic("Active SDK changed", ActiveSdkListener::class.java)
+
+/**
+ * The listener that is used with [ACTIVE_PYTHON_SDK_TOPIC] message bus topic.
+ */
+interface ActiveSdkListener {
+  fun activeSdkChanged(module: Module, sdk: Sdk?)
 }

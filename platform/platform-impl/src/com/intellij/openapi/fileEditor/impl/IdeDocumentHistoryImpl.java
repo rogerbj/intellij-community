@@ -548,7 +548,11 @@ public class IdeDocumentHistoryImpl extends IdeDocumentHistory implements Dispos
 
   @Override
   public void gotoPlaceInfo(@NotNull PlaceInfo info) {
-    final boolean wasActive = ToolWindowManager.getInstance(myProject).isEditorComponentActive();
+    gotoPlaceInfo(info, ToolWindowManager.getInstance(myProject).isEditorComponentActive());
+  }
+
+  @Override
+  public void gotoPlaceInfo(@NotNull PlaceInfo info, boolean wasActive) {
     EditorWindow wnd = info.getWindow();
     FileEditorManagerEx editorManager = getFileEditorManager();
     final Pair<FileEditor[], FileEditorProvider[]> editorsWithProviders = wnd != null && wnd.isValid()
@@ -573,7 +577,7 @@ public class IdeDocumentHistoryImpl extends IdeDocumentHistory implements Dispos
   @Nullable
   protected FileEditorWithProvider getSelectedEditor() {
     FileEditorManagerEx editorManager = getFileEditorManager();
-    VirtualFile file = editorManager.getCurrentFile();
+    VirtualFile file = editorManager != null ? editorManager.getCurrentFile() : null;
     return file == null ? null : editorManager.getSelectedEditorWithProvider(file);
   }
 

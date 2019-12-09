@@ -140,10 +140,10 @@ public interface IdeActions {
   @NonNls String ACTION_SELECT_ALL_OCCURRENCES = "SelectAllOccurrences";
   @NonNls String ACTION_UNSELECT_PREVIOUS_OCCURENCE = "UnselectPreviousOccurrence";
   @NonNls String ACTION_REPLACE = "Replace";
+  @NonNls String ACTION_TOGGLE_FIND_IN_SELECTION_ONLY = "ToggleFindInSelection";
   @NonNls String ACTION_COMPILE = "Compile";
   @NonNls String ACTION_COMPILE_PROJECT = "CompileProject";
   @NonNls String ACTION_MAKE_MODULE = "MakeModule";
-  @NonNls String ACTION_GENERATE_ANT_BUILD = "GenerateAntBuild";
   @NonNls String ACTION_INSPECT_CODE = "InspectCode";
 
   @NonNls String ACTION_FIND_USAGES = "FindUsages";

@@ -11,7 +11,6 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.impl.ProgressManagerImpl;
 import com.intellij.openapi.progress.util.StandardProgressIndicatorBase;
-import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.Pair;
@@ -27,7 +26,7 @@ import java.util.concurrent.Future;
 import java.util.function.Predicate;
 
 public final class VcsInitialization implements Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.impl.VcsInitialization");
+  private static final Logger LOG = Logger.getInstance(VcsInitialization.class);
 
   private final List<Pair<VcsInitObject, Runnable>> myList = new ArrayList<>();
   private final Object myLock = new Object();
@@ -40,12 +39,12 @@ public final class VcsInitialization implements Disposable {
   private volatile Future<?> myFuture;
   private final ProgressIndicator myIndicator = new StandardProgressIndicatorBase();
 
-  VcsInitialization(@NotNull final Project project) {
+  VcsInitialization(@NotNull Project project) {
     myProject = project;
     LOG.assertTrue(!project.isDefault());
 
-    StartupManager.getInstance(project).registerPostStartupActivity((DumbAwareRunnable)() -> {
-      if (project.isDisposedOrDisposeInProgress()) {
+    StartupManager.getInstance(project).registerPostStartupDumbAwareActivity(() -> {
+      if (project.isDisposed()) {
         return;
       }
 
@@ -59,7 +58,7 @@ public final class VcsInitialization implements Disposable {
     });
   }
 
-  public void add(@NotNull final VcsInitObject vcsInitObject, @NotNull final Runnable runnable) {
+  public void add(@NotNull VcsInitObject vcsInitObject, @NotNull Runnable runnable) {
     synchronized (myLock) {
       if (myStatus != Status.IDLE) {
         if (!vcsInitObject.isCanBeLast()) {

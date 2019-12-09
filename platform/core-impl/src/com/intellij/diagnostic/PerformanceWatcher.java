@@ -94,15 +94,13 @@ public final class PerformanceWatcher implements Disposable {
       }
     });
 
-    ApplicationManager.getApplication().executeOnPooledThread(() -> {
-      for (MemoryPoolMXBean bean : ManagementFactory.getMemoryPoolMXBeans()) {
-        if ("Code Cache".equals(bean.getName())) {
-          watchCodeCache(bean);
-          break;
-        }
+    for (MemoryPoolMXBean bean : ManagementFactory.getMemoryPoolMXBeans()) {
+      if ("Code Cache".equals(bean.getName())) {
+        watchCodeCache(bean);
+        break;
       }
-      cleanOldFiles(myLogDir, 0);
-    });
+    }
+    cleanOldFiles(myLogDir, 0);
 
     myThread =
       myExecutor.scheduleWithFixedDelay(this::samplePerformance, getSamplingInterval(), getSamplingInterval(), TimeUnit.MILLISECONDS);
@@ -284,7 +282,8 @@ public final class PerformanceWatcher implements Disposable {
     stopDumping();
 
     if (myFreezeStart != 0) {
-      int unresponsiveDuration = (int)(currentMillis - myFreezeStart) / 1000;
+      long durationMs = currentMillis - myFreezeStart;
+      int unresponsiveDuration = (int)durationMs / 1000;
       File dir = new File(myLogDir, getFreezeFolderName(myFreezeStart));
       File reportDir = null;
       if (dir.exists()) {
@@ -294,7 +293,8 @@ public final class PerformanceWatcher implements Disposable {
           reportDir = null;
         }
       }
-      getPublisher().uiFreezeFinished(currentMillis - myFreezeStart, reportDir);
+      LOG.warn("UI was frozen for " + durationMs + "ms, details saved to " + reportDir);
+      getPublisher().uiFreezeFinished(durationMs, reportDir);
       myFreezeStart = 0;
 
       myStacktraceCommonPart = null;
@@ -495,10 +495,14 @@ public final class PerformanceWatcher implements Disposable {
     private final Future<?> myFuture;
 
     FreezeCheckerTask(long start) {
-      myFuture = myExecutor.schedule(() -> edtFrozenPrecise(start), getUnresponsiveInterval(), TimeUnit.MILLISECONDS);
+      myFuture =
+        !myExecutor.isShutdown() ?
+        myExecutor.schedule(() -> edtFrozenPrecise(start), getUnresponsiveInterval(), TimeUnit.MILLISECONDS) :
+        null;
     }
 
     void stop() {
+      if (myFuture == null) return;
       myFuture.cancel(false);
       if (myState.getAndSet(CheckerState.FINISHED) == CheckerState.FREEZE) {
         long end = System.currentTimeMillis();
@@ -520,7 +524,12 @@ public final class PerformanceWatcher implements Disposable {
         myDumpTask = new SamplingTask(getDumpInterval(), getMaxDumpDuration()) {
           @Override
           protected void dumpedThreads(ThreadInfo[] infos) {
-            dumpThreads(getFreezeFolderName(myFreezeStart) + "/", false, infos, true);
+            if (myState.get() == CheckerState.FINISHED) {
+              stop();
+            }
+            else {
+              dumpThreads(getFreezeFolderName(myFreezeStart) + "/", false, infos, true);
+            }
           }
         };
       }

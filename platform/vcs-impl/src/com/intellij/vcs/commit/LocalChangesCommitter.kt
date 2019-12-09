@@ -4,7 +4,6 @@ package com.intellij.vcs.commit
 import com.intellij.history.LocalHistory
 import com.intellij.history.LocalHistoryAction
 import com.intellij.openapi.application.runReadAction
-import com.intellij.openapi.progress.ProgressManager.progress
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.VcsBundle.message
 import com.intellij.openapi.vcs.changes.*
@@ -23,6 +22,8 @@ open class LocalChangesCommitter(
 
   private var myAction = LocalHistoryAction.NULL
 
+  protected var isSuccess = false
+
   override fun commit() {
     processChangesByVcs(project, changes, this::commit)
   }
@@ -33,7 +34,9 @@ open class LocalChangesCommitter(
     myAction = runReadAction { LocalHistory.getInstance().startAction(localHistoryActionName) }
   }
 
-  override fun onSuccess() = Unit
+  override fun onSuccess() {
+    isSuccess = true
+  }
 
   override fun onFailure() = Unit
 
@@ -51,7 +54,7 @@ open class LocalChangesCommitter(
       }
     }
 
-    if (!toRefresh.isEmpty()) {
+    if (toRefresh.isNotEmpty()) {
       progress(message("commit.dialog.refresh.files"))
       RefreshVFsSynchronously.updateChanges(toRefresh)
     }

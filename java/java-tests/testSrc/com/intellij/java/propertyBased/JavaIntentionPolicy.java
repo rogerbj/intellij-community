@@ -48,6 +48,7 @@ class JavaIntentionPolicy extends IntentionPolicy {
            actionText.startsWith("Detail exceptions") || // can produce uncompilable code if 'catch' section contains 'instanceof's
            actionText.startsWith("Insert call to super method") || // super method can declare checked exceptions, unexpected at this point
            actionText.startsWith("Cast to ") || // produces uncompilable code by design
+           actionText.matches("Surround with 'if \\(.+\\)'") || // might produce uninitialized variable or missing return statement problem
            actionText.startsWith("Unwrap 'else' branch (changes semantics)") || // might produce code with final variables are initialized several times
            actionText.startsWith("Create missing branches: ") || // if all existing branches do 'return something', we don't automatically generate compilable code for new branches
            actionText.matches("Make .* default") || // can make interface non-functional and its lambdas incorrect
@@ -57,6 +58,7 @@ class JavaIntentionPolicy extends IntentionPolicy {
            actionText.equals("Split into declaration and initialization") || // TODO: remove when IDEA-179081 is fixed
            actionText.matches("Replace with throws .*") || //may break catches with explicit exceptions
            actionText.equals("Generate 'clone()' method which always throws exception") || // IDEA-207048
+           actionText.matches("Replace '.+' with '.+' in cast") || // can produce uncompilable code by design
            actionText.matches("Replace with '(new .+\\[]|.+\\[]::new)'"); // Suspicious toArray may introduce compilation error
   }
 

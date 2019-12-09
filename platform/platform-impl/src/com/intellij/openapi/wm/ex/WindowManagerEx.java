@@ -41,6 +41,7 @@ public abstract class WindowManagerEx extends WindowManager {
   }
 
   @NotNull
+  @ApiStatus.Internal
   public abstract ProjectFrameHelper allocateFrame(@NotNull Project project);
 
   /**
@@ -74,7 +75,7 @@ public abstract class WindowManagerEx extends WindowManager {
   /**
    * Copies {@code layout} into internal default layout.
    */
-  public abstract void setLayout(DesktopLayout layout);
+  public abstract void setLayout(@NotNull DesktopLayout layout);
 
   /**
    * This method is invoked by {@code IdeEventQueue} to notify window manager that

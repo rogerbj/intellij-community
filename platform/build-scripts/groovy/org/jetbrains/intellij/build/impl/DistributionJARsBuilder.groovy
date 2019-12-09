@@ -21,7 +21,6 @@ import org.jetbrains.jps.model.module.JpsModuleReference
 import org.jetbrains.jps.util.JpsPathUtil
 
 import java.util.stream.Collectors
-
 /**
  * Assembles output of modules to platform JARs (in {@link org.jetbrains.intellij.build.BuildPaths#distAll distAll}/lib directory),
  * bundled plugins' JARs (in {@link org.jetbrains.intellij.build.BuildPaths#distAll distAll}/plugins directory) and zip archives with
@@ -39,15 +38,16 @@ class DistributionJARsBuilder {
    */
   private static final String THIRD_PARTY_LIBRARIES_FILE_PATH = "license/third-party-libraries.html"
   private static final String PLUGINS_DIRECTORY = "/plugins"
-  
+
   private final BuildContext buildContext
   private final Set<String> usedModules = new LinkedHashSet<>()
   private final PlatformLayout platform
   private final File patchedApplicationInfo
-  private final LinkedHashMap<PluginLayout, PluginPublishingSpec> pluginsToPublish
+  private final LinkedHashSet<PluginLayout> pluginsToPublish
 
-  DistributionJARsBuilder(BuildContext buildContext, File patchedApplicationInfo,
-                          LinkedHashMap<PluginLayout, PluginPublishingSpec> pluginsToPublish = [:]) {
+  DistributionJARsBuilder(BuildContext buildContext,
+                          File patchedApplicationInfo,
+                          LinkedHashSet<PluginLayout> pluginsToPublish = []) {
     this.patchedApplicationInfo = patchedApplicationInfo
     this.buildContext = buildContext
     this.pluginsToPublish = pluginsToPublish
@@ -82,13 +82,14 @@ class DistributionJARsBuilder {
     def enabledPluginModules = getEnabledPluginModules()
     buildContext.messages.debug("Collecting project libraries used by plugins: ")
     List<JpsLibrary> projectLibrariesUsedByPlugins = getPluginsByModules(buildContext, enabledPluginModules).collectMany { plugin ->
+      final Collection<String> libsToUnpack = plugin.projectLibrariesToUnpack.values()
       plugin.getActualModules(enabledPluginModules).values().collectMany {
         def module = buildContext.findRequiredModule(it)
         def libraries =
           JpsJavaExtensionService.dependencies(module).includedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME).libraries.findAll { library ->
             !(library.createReference().parentReference instanceof JpsModuleReference) && !plugin.includedProjectLibraries.any {
               it.libraryName == library.name && it.relativeOutputPath == ""
-            }
+            } && !libsToUnpack.contains(library.name)
           }
         if (!libraries.isEmpty()) {
           buildContext.messages.debug(" plugin '$plugin.mainModule', module '$it': ${libraries.collect { "'$it.name'" }.join(",")}")
@@ -110,18 +111,20 @@ class DistributionJARsBuilder {
           withModule(it, jarName)
         }
       }
-      getPlatformApiModules(productLayout).each {
+      CommunityRepositoryModules.PLATFORM_API_MODULES.each {
         withModule(it, "platform-api.jar")
       }
-      getPlatformImplModules(productLayout).each {
+      CommunityRepositoryModules.PLATFORM_IMPLEMENTATION_MODULES.each {
         withModule(it, "platform-impl.jar")
       }
-      getProductApiModules(productLayout).each {
+      productLayout.productApiModules.each {
         withModule(it, "openapi.jar")
       }
-      getProductImplModules(productLayout).each {
+
+      productLayout.productImplementationModules.each {
         withModule(it, productLayout.mainJarName)
       }
+
       productLayout.moduleExcludes.entrySet().each {
         layout.moduleExcludes.putAll(it.key, it.value)
       }
@@ -131,6 +134,7 @@ class DistributionJARsBuilder {
       withModule("intellij.platform.util.ui")
       withModule("intellij.platform.util.ex")
 
+      withModule("intellij.platform.diagnostic")
       withModule("intellij.platform.ide.util.io")
 
       withModule("intellij.platform.concurrency")
@@ -165,14 +169,16 @@ class DistributionJARsBuilder {
       withModule("intellij.platform.boot", "bootstrap.jar")
       withModule("intellij.platform.resources", "resources.jar")
       withModule("intellij.platform.colorSchemes", "resources.jar")
-      withModule("intellij.platform.resources.en", productLayout.mainJarName)
+      withModule("intellij.platform.resources.en", "resources.jar")
       withModule("intellij.platform.jps.model.serialization", "jps-model.jar")
       withModule("intellij.platform.jps.model.impl", "jps-model.jar")
 
       withModule("intellij.platform.externalSystem.rt", "external-system-rt.jar")
 
+      withModule("intellij.platform.cdsAgent", "cds/classesLogAgent.jar")
+
       if (allProductDependencies.contains("intellij.platform.coverage")) {
-        withModule("intellij.platform.coverage", productLayout.mainJarName)
+        withModule("intellij.platform.coverage")
       }
 
       projectLibrariesUsedByPlugins.each {
@@ -194,10 +200,9 @@ class DistributionJARsBuilder {
   private static Set<String> getLibsToRemoveVersion() {
     return ["Trove4j", "Log4J", "jna", "jetbrains-annotations-java5", "JDOM"].toSet()
   }
-  
+
   private Set<String> getEnabledPluginModules() {
-    buildContext.productProperties.productLayout.allBundledPluginsModules + pluginsToPublish.keySet().
-      collect { it.mainModule } as Set<String>
+    buildContext.productProperties.productLayout.bundledPluginModules + pluginsToPublish.collect { it.mainModule } as Set<String>
   }
 
   List<String> getPlatformModules() {
@@ -205,8 +210,8 @@ class DistributionJARsBuilder {
   }
 
   static List<String> getIncludedPlatformModules(ProductModulesLayout modulesLayout) {
-    getPlatformApiModules(modulesLayout) + getPlatformImplModules(modulesLayout) + getProductApiModules(modulesLayout) +
-    getProductImplModules(modulesLayout) + modulesLayout.additionalPlatformJars.values()
+    CommunityRepositoryModules.PLATFORM_API_MODULES + CommunityRepositoryModules.PLATFORM_IMPLEMENTATION_MODULES + modulesLayout.productApiModules +
+    modulesLayout.productImplementationModules + modulesLayout.additionalPlatformJars.values()
   }
 
   /**
@@ -214,22 +219,6 @@ class DistributionJARsBuilder {
    */
   static List<String> getToolModules() {
     ["intellij.java.rt", "intellij.platform.main", /*required to build searchable options index*/ "intellij.platform.updater"]
-  }
-
-  static List<String> getPlatformApiModules(ProductModulesLayout productLayout) {
-    productLayout.platformApiModules.isEmpty() ? CommunityRepositoryModules.PLATFORM_API_MODULES : []
-  }
-
-  static List<String> getPlatformImplModules(ProductModulesLayout productLayout) {
-    productLayout.platformImplementationModules.isEmpty() ? CommunityRepositoryModules.PLATFORM_IMPLEMENTATION_MODULES : []
-  }
-
-  static List<String> getProductApiModules(ProductModulesLayout productLayout) {
-    productLayout.platformApiModules.isEmpty() ? productLayout.productApiModules : productLayout.platformApiModules
-  }
-
-  static List<String> getProductImplModules(ProductModulesLayout productLayout) {
-    productLayout.platformImplementationModules.isEmpty() ? productLayout.productImplementationModules : productLayout.platformImplementationModules
   }
 
   Collection<String> getIncludedProjectArtifacts() {
@@ -245,10 +234,17 @@ class DistributionJARsBuilder {
     buildOsSpecificBundledPlugins()
     buildNonBundledPlugins()
     buildThirdPartyLibrariesList()
+    reorderJARs()
+  }
 
-    def loadingOrderFilePath = buildContext.productProperties.productLayout.classesLoadingOrderFilePath
-    if (loadingOrderFilePath != null) {
-      reorderJARs(loadingOrderFilePath)
+  void reorderJARs() {
+    if (!buildContext.options.buildStepsToSkip.contains(BuildOptions.GENERATE_JAR_ORDER_STEP)) {
+      def explicitOrderFile = buildContext.productProperties.productLayout.classesLoadingOrderFilePath
+      def loadingOrderFilePath = explicitOrderFile != null ? explicitOrderFile : "$buildContext.paths.temp/jarOrder/order.txt"
+
+      if (loadingOrderFilePath != null && new File(loadingOrderFilePath).exists()) {
+        reorderJARs(loadingOrderFilePath)
+      }
     }
   }
 
@@ -259,7 +255,7 @@ class DistributionJARsBuilder {
 
   /**
    * Creates files with modules and class loading order.
-   * The files are used in {@link #processOrderFiles} for creating the "classpath-order.txt" and "order.txt"  
+   * The files are used in {@link #processOrderFiles} for creating the "classpath-order.txt" and "order.txt"
    */
   void buildOrderFiles() {
     buildContext.executeStep("Build jar order file", BuildOptions.GENERATE_JAR_ORDER_STEP, {
@@ -305,11 +301,11 @@ class DistributionJARsBuilder {
 
   static List<String> getModulesToCompile(BuildContext buildContext) {
     def productLayout = buildContext.productProperties.productLayout
-    productLayout.getIncludedPluginModules(productLayout.allBundledPluginsModules) +
-    getPlatformApiModules(productLayout) +
-    getPlatformImplModules(productLayout) +
-    getProductApiModules(productLayout) +
-    getProductImplModules(productLayout) +
+    productLayout.getIncludedPluginModules(productLayout.bundledPluginModules as Set<String>) +
+    CommunityRepositoryModules.PLATFORM_API_MODULES +
+    CommunityRepositoryModules.PLATFORM_IMPLEMENTATION_MODULES +
+    productLayout.productApiModules +
+    productLayout.productImplementationModules +
     productLayout.additionalPlatformJars.values() +
     toolModules + buildContext.productProperties.additionalModulesToCompile +
     SVGPreBuilder.getModulesToInclude()
@@ -317,7 +313,7 @@ class DistributionJARsBuilder {
 
   List<String> getModulesForPluginsToPublish() {
     def enabledModulesSet = enabledPluginModules
-    platformModules + (pluginsToPublish.collect { it.key.getActualModules(enabledModulesSet).values() }.flatten() as List<String>)
+    platformModules + (pluginsToPublish.collect { it.getActualModules(enabledModulesSet).values() }.flatten() as List<String>)
   }
 
   void reorderJARs(String loadingOrderFilePath) {
@@ -457,7 +453,6 @@ class DistributionJARsBuilder {
     }
     def resultFile = new File(finalOrder)
     FileUtil.writeToFile(resultFile, resultLines.join("\n"))
-    buildContext.productProperties.productLayout.classesLoadingOrderFilePath = resultFile.getPath()
     buildContext.messages.info("Completed generating classes order file. Before preparing: ${lines.size()} after: ${resultLines.size()}")
   }
 
@@ -482,7 +477,7 @@ class DistributionJARsBuilder {
     }
     return pathToModuleName
   }
-  
+
   private Map<String, String> getLibraryPathToJarName() {
     def libWithoutVersion = new HashSet(platform.projectLibrariesWithRemovedVersionFromJarNames)
     def libraryJarPathToJarName = new HashMap()
@@ -502,7 +497,7 @@ class DistributionJARsBuilder {
     }
     return libraryJarPathToJarName
   }
-  
+
   private void addJarOrderFile(LayoutBuilder layoutBuilder,
                                Map<String, String> pathToModuleName,
                                Map<String, String> pathToToJarName,
@@ -544,7 +539,7 @@ class DistributionJARsBuilder {
   private Map<String, String> getModuleToJarMap(BaseLayout layout, Map<String, String> moduleToJar = new HashMap<>(), String jarPrefix = "") {
     for (def entry : layout.moduleJars.entrySet()) {
       def jarName = entry.key
-      def fixedJarName = getActualModuleJarPath(jarName, entry.value, platform.explicitlySetJarPaths)
+      def fixedJarName = getActualModuleJarPath(jarName, entry.value, layout.explicitlySetJarPaths)
       entry.value.forEach({ el -> moduleToJar.put(el, jarPrefix + fixedJarName) })
     }
     return moduleToJar
@@ -554,7 +549,7 @@ class DistributionJARsBuilder {
     def ant = buildContext.ant
     def layoutBuilder = createLayoutBuilder()
     def productLayout = buildContext.productProperties.productLayout
-    
+
     processOrderFiles(layoutBuilder)
     addSearchableOptions(layoutBuilder)
     SVGPreBuilder.addGeneratedResources(buildContext, layoutBuilder)
@@ -633,11 +628,9 @@ class DistributionJARsBuilder {
   private void buildOsSpecificBundledPlugins() {
     def productLayout = buildContext.productProperties.productLayout
     for (OsFamily osFamily in OsFamily.values()) {
-      List<PluginLayout> osSpecificPlugins =
-        getPluginsByModules(buildContext, productLayout.bundledOsPluginModules[osFamily] ?: []) +
-        getPluginsByModules(buildContext, productLayout.bundledPluginModules).findAll {
-          satisfiesBundlingRequirements(it, osFamily)
-        }
+      List<PluginLayout> osSpecificPlugins = getPluginsByModules(buildContext, productLayout.bundledPluginModules).findAll {
+        satisfiesBundlingRequirements(it, osFamily)
+      }
 
       if (!osSpecificPlugins.isEmpty() && buildContext.shouldBuildDistributionForOS(osFamily.osId)) {
         def layoutBuilder = createLayoutBuilder()
@@ -659,23 +652,20 @@ class DistributionJARsBuilder {
     buildContext.executeStep("Build non-bundled plugins", BuildOptions.NON_BUNDLED_PLUGINS_STEP) {
       def pluginXmlFiles = new LinkedHashMap<PluginLayout, String>()
 
-      pluginsToPublish.each { pluginAndPublishing ->
-        def plugin = pluginAndPublishing.key
-
+      pluginsToPublish.each { plugin ->
         def moduleOutput = buildContext.getModuleOutputPath(buildContext.findRequiredModule(plugin.mainModule))
         def pluginXmlPath = "$moduleOutput/META-INF/plugin.xml"
-        if (!new File(pluginXmlPath)) {
+        if (!new File(pluginXmlPath).exists()) {
           buildContext.messages.error("plugin.xml not found in $plugin.mainModule module: $pluginXmlPath")
         }
 
         pluginXmlFiles.put(plugin, pluginXmlPath)
       }
 
+      def pluginVersion = buildContext.buildNumber.endsWith(".SNAPSHOT") ? buildContext.buildNumber + ".${new Date().format('yyyyMMdd')}"
+                                                                         : buildContext.buildNumber
       if (buildContext.productProperties.setPluginAndIDEVersionInPluginXml) {
-        pluginsToPublish.each { pluginAndPublishing ->
-          def plugin = pluginAndPublishing.key
-          def publishingSpec = pluginAndPublishing.value
-
+        pluginsToPublish.each { plugin ->
           def pluginXmlPath = pluginXmlFiles[plugin]
           def patchedPluginXmlDir = "$buildContext.paths.temp/patched-plugin-xml/$plugin.mainModule"
           def patchedPluginXmlPath = "$patchedPluginXmlDir/META-INF/plugin.xml"
@@ -683,51 +673,41 @@ class DistributionJARsBuilder {
 
           ant.copy(file: pluginXmlPath, todir: "$patchedPluginXmlDir/META-INF")
 
-          CompatibleBuildRange compatibleBuildRange = publishingSpec.compatibleBuildRange
-          if (compatibleBuildRange == null) {
-            def includeInBuiltinCustomRepository = productLayout.prepareCustomPluginRepositoryForPublishedPlugins &&
-                                                   publishingSpec.includeInCustomPluginRepository &&
-                                                   buildContext.proprietaryBuildTools.artifactsServer != null
+          def includeInBuiltinCustomRepository = productLayout.prepareCustomPluginRepositoryForPublishedPlugins &&
+                                                 buildContext.proprietaryBuildTools.artifactsServer != null
+          CompatibleBuildRange compatibleBuildRange =
             //plugins included into the built-in custom plugin repository should use EXACT range because such custom repositories are used for nightly builds and there may be API differences between different builds
-            compatibleBuildRange = includeInBuiltinCustomRepository ? CompatibleBuildRange.EXACT :
-                                   //when publishing plugins with EAP build let's use restricted range to ensure that users will update to a newer version of the plugin when they update to the next EAP or release build
-                                   buildContext.applicationInfo.isEAP ? CompatibleBuildRange.RESTRICTED_TO_SAME_RELEASE
-                                                                      : CompatibleBuildRange.NEWER_WITH_SAME_BASELINE
-          }
+            includeInBuiltinCustomRepository ? CompatibleBuildRange.EXACT :
+            //when publishing plugins with EAP build let's use restricted range to ensure that users will update to a newer version of the plugin when they update to the next EAP or release build
+            buildContext.applicationInfo.isEAP ? CompatibleBuildRange.RESTRICTED_TO_SAME_RELEASE
+                                               : CompatibleBuildRange.NEWER_WITH_SAME_BASELINE
 
-          setPluginVersionAndSince(patchedPluginXmlPath, getPluginVersion(plugin),
-                                   buildContext.buildNumber,
-                                   compatibleBuildRange)
+          setPluginVersionAndSince(patchedPluginXmlPath, pluginVersion, buildContext.buildNumber, compatibleBuildRange)
           layoutBuilder.patchModuleOutput(plugin.mainModule, patchedPluginXmlDir)
         }
       }
 
       def pluginsToPublishDir = "$buildContext.paths.temp/${buildContext.applicationInfo.productCode}-plugins-to-publish"
       def pluginsDirectoryName = "${buildContext.applicationInfo.productCode}-plugins"
-      buildPlugins(layoutBuilder, new ArrayList<PluginLayout>(pluginsToPublish.keySet()), pluginsToPublishDir)
+      buildPlugins(layoutBuilder, new ArrayList<PluginLayout>(pluginsToPublish), pluginsToPublishDir)
       def nonBundledPluginsArtifacts = "$buildContext.paths.artifacts/$pluginsDirectoryName"
 
       def pluginsToIncludeInCustomRepository = new ArrayList<PluginRepositorySpec>()
       def whiteList = new File("$buildContext.paths.communityHome/../build/plugins-autoupload-whitelist.txt").readLines()
         .stream().map { it.trim() }.filter { !it.isEmpty() && !it.startsWith("//") }.collect(Collectors.toSet())
 
-      pluginsToPublish.each { pluginAndPublishing ->
-        def plugin = pluginAndPublishing.key
-        def publishingSpec = pluginAndPublishing.value
-
-        def includeInCustomRepository = productLayout.prepareCustomPluginRepositoryForPublishedPlugins && publishingSpec.includeInCustomPluginRepository
+      pluginsToPublish.each { plugin ->
+        def includeInCustomRepository = productLayout.prepareCustomPluginRepositoryForPublishedPlugins
 
         def directory = getActualPluginDirectoryName(plugin, buildContext)
-        String suffix = includeInCustomRepository ? "" : "-${getPluginVersion(plugin)}"
-        def targetDirectory = publishingSpec.includeIntoDirectoryForAutomaticUploading &&
-                              whiteList.contains(plugin.mainModule)
+        String suffix = includeInCustomRepository ? "" : "-$pluginVersion"
+        def targetDirectory = whiteList.contains(plugin.mainModule)
           ? "$nonBundledPluginsArtifacts/auto-uploading"
           : nonBundledPluginsArtifacts
         def destFile = "$targetDirectory/$directory${suffix}.zip"
 
         if (includeInCustomRepository) {
-          pluginsToIncludeInCustomRepository.add(new PluginRepositorySpec(pluginZip: destFile.toString(),
-                                                                          pluginXml: pluginXmlFiles[plugin]))
+          pluginsToIncludeInCustomRepository.add(new PluginRepositorySpec(pluginZip: destFile.toString(), pluginXml: pluginXmlFiles[plugin]))
         }
 
         ant.zip(destfile: destFile) {
@@ -736,7 +716,19 @@ class DistributionJARsBuilder {
         buildContext.notifyArtifactBuilt(destFile)
       }
 
-      KeymapPluginsBuilder.buildKeymapPlugins(buildContext, "$nonBundledPluginsArtifacts/keymaps")
+      KeymapPluginsBuilder.buildKeymapPlugins(buildContext, "$nonBundledPluginsArtifacts/auto-uploading").forEach {
+        if (productLayout.prepareCustomPluginRepositoryForPublishedPlugins) {
+          pluginsToIncludeInCustomRepository.add(it)
+        }
+      }
+
+      def helpPlugin = BuiltInHelpPlugin.helpPlugin(buildContext, pluginVersion)
+      if (helpPlugin != null) {
+        def spec = buildHelpPlugin(helpPlugin, pluginsToPublishDir, "$nonBundledPluginsArtifacts/auto-uploading", layoutBuilder)
+        if (productLayout.prepareCustomPluginRepositoryForPublishedPlugins) {
+          pluginsToIncludeInCustomRepository.add(spec)
+        }
+      }
 
       if (productLayout.prepareCustomPluginRepositoryForPublishedPlugins) {
         new PluginRepositoryXmlGenerator(buildContext).generate(pluginsToIncludeInCustomRepository, nonBundledPluginsArtifacts)
@@ -745,8 +737,21 @@ class DistributionJARsBuilder {
     }
   }
 
-  private String getPluginVersion(PluginLayout plugin) {
-    return plugin.versionEvaluator.apply(buildContext)
+  private PluginRepositorySpec buildHelpPlugin(PluginLayout helpPlugin, String pluginsToPublishDir, String targetDir, LayoutBuilder layoutBuilder) {
+    def directory = getActualPluginDirectoryName(helpPlugin, buildContext)
+    def destFile = "${targetDir}/${directory}.zip"
+    def patchedPluginXmlDir = "$buildContext.paths.temp/patched-plugin-xml/$helpPlugin.mainModule"
+    layoutBuilder.patchModuleOutput(helpPlugin.mainModule, patchedPluginXmlDir)
+    buildContext.messages.block("Building $directory plugin") {
+      buildPlugins(layoutBuilder, new ArrayList<PluginLayout>([helpPlugin]), pluginsToPublishDir)
+      buildContext.ant.zip(destfile: destFile) {
+        zipfileset(dir: "$pluginsToPublishDir/$directory", prefix: directory)
+      }
+    }
+    buildContext.notifyArtifactBuilt(destFile)
+    def pluginXmlPath = "$patchedPluginXmlDir/META-INF/plugin.xml"
+    return new PluginRepositorySpec(pluginZip: destFile,
+                                    pluginXml: pluginXmlPath)
   }
 
   /**
@@ -780,7 +785,16 @@ class DistributionJARsBuilder {
         File resourceFile = it.first.generateResources(buildContext)
         resourceFile != null ? [Pair.create(resourceFile, it.second)] : []
       }
-      buildByLayout(layoutBuilder, plugin, "$targetDirectory/${getActualPluginDirectoryName(plugin, buildContext)}", actualModuleJars, generatedResources)
+
+      final String targetDir = "$targetDirectory/${getActualPluginDirectoryName(plugin, buildContext)}"
+
+      buildByLayout(layoutBuilder, plugin, targetDir, actualModuleJars, generatedResources)
+      if (buildContext.proprietaryBuildTools.scrambleTool != null) {
+        buildContext.proprietaryBuildTools.scrambleTool.scramblePlugin(buildContext, plugin, targetDir)
+      }
+      else if (!plugin.pathsToScramble.isEmpty()){
+        buildContext.messages.warning("Scrambling plugin $plugin.directoryName skipped: 'scrambleTool' isn't defined, but plugin defines paths to be scrambled")
+      }
     }
   }
 

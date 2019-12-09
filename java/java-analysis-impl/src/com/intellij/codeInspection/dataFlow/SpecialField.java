@@ -324,14 +324,14 @@ public enum SpecialField implements VariableDescriptor {
   public MethodContract[] getEmptyContracts() {
     ContractValue thisValue = ContractValue.qualifier().specialField(this);
     return new MethodContract[]{
-      MethodContract.singleConditionContract(thisValue, DfaRelationValue.RelationType.EQ, ContractValue.zero(), returnTrue()),
+      MethodContract.singleConditionContract(thisValue, RelationType.EQ, ContractValue.zero(), returnTrue()),
       MethodContract.trivialContract(returnFalse())};
   }
 
   public MethodContract[] getEqualsContracts() {
     return new MethodContract[]{new StandardMethodContract(new StandardMethodContract.ValueConstraint[]{NULL_VALUE}, returnFalse()),
                          MethodContract.singleConditionContract(
-                           ContractValue.qualifier().specialField(this), DfaRelationValue.RelationType.NE,
+                           ContractValue.qualifier().specialField(this), RelationType.NE,
                            ContractValue.argument(0).specialField(this), returnFalse())};
   }
 
@@ -368,7 +368,29 @@ public enum SpecialField implements VariableDescriptor {
     }
     return null;
   }
-  
+
+  /**
+   * Returns a special field which corresponds to given qualifier
+   *
+   * @param value a qualifier value
+   * @return a special field; null if no special field is detected to be related to given qualifier
+   */
+  @Nullable
+  public static SpecialField fromQualifier(@NotNull DfaValue value) {
+    if (value instanceof DfaFactMapValue) {
+      DfaFactMap facts = ((DfaFactMapValue)value).getFacts();
+      SpecialFieldValue sfValue = facts.get(DfaFactType.SPECIAL_FIELD_VALUE);
+      if (sfValue != null) {
+        return sfValue.getField();
+      }
+      TypeConstraint constraint = facts.get(DfaFactType.TYPE_CONSTRAINT);
+      if (constraint != null) {
+        return fromQualifierType(constraint.getPsiType());
+      }
+    }
+    return fromQualifierType(value.getType());
+  }
+
   @Override
   public String toString() {
     return myTitle;

@@ -1,16 +1,13 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic
 
-import com.intellij.diagnostic.startUpPerformanceReporter.StartUpPerformanceReporter
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.impl.ApplicationInfoImpl
+import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.TableView
@@ -51,12 +48,11 @@ class PluginStartupCostDialog(private val project: Project) : DialogWrapper(proj
   }
 
   override fun createCenterPanel(): JComponent {
-    val pluginCostMap = StartupActivity.POST_STARTUP_ACTIVITY.findExtensionOrFail(
-      StartUpPerformanceReporter::class.java).pluginCostMap!!
+    val pluginCostMap = StartUpPerformanceService.getInstance().pluginCostMap
     val tableData = pluginCostMap
       .mapNotNull { (pluginId, costMap) ->
         if (!ApplicationManager.getApplication().isInternal &&
-            (ApplicationInfo.getInstance() as ApplicationInfoImpl).isEssentialPlugin(pluginId)) {
+            (ApplicationInfoEx.getInstanceEx()).isEssentialPlugin(pluginId)) {
           return@mapNotNull null
         }
 
@@ -120,7 +116,9 @@ class PluginStartupCostDialog(private val project: Project) : DialogWrapper(proj
 
   override fun doOKAction() {
     super.doOKAction()
-    val plugins = pluginsToDisable.map { PluginManagerCore.getPlugin(PluginId.getId(it)) }.toSet()
-    IdeErrorsDialog.confirmDisablePlugins(project, plugins)
+    if (pluginsToDisable.isNotEmpty()) {
+      val plugins = pluginsToDisable.map { PluginManagerCore.getPlugin(PluginId.getId(it)) }.toSet()
+      IdeErrorsDialog.confirmDisablePlugins(project, plugins)
+    }
   }
 }

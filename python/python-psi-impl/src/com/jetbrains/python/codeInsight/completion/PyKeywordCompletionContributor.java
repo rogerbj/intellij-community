@@ -20,6 +20,8 @@ import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.PythonLanguage;
 import com.jetbrains.python.codeInsight.PyUnindentingInsertHandler;
+import com.jetbrains.python.codeInsight.mlcompletion.PyCompletionMlElementInfo;
+import com.jetbrains.python.codeInsight.mlcompletion.PyCompletionMlElementKind;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.documentation.doctest.PyDocstringFile;
@@ -240,9 +242,8 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       psiElement().inFile(psiFile(PyDocstringFile.class)));
 
   private static final ElementPattern<PsiElement> IN_FUNCTION_HEADER =
-    or(psiElement().inside(PyFunction.class).andNot(or(psiElement().inside(false, psiElement(PyStatementList.class), psiElement(PyFunction.class)),
-                                                       psiElement().inside(false, psiElement(PyParameterList.class), psiElement(PyFunction.class)))),
-       psiElement().inside(PyClass.class).andNot(psiElement().inside(false, psiElement(PyStatementList.class), psiElement(PyClass.class))));
+    psiElement().inside(PyFunction.class).andNot(or(psiElement().inside(false, psiElement(PyStatementList.class), psiElement(PyFunction.class)),
+                                                    psiElement().inside(false, psiElement(PyParameterList.class), psiElement(PyFunction.class))));
 
   public static final PsiElementPattern.Capture<PsiElement> AFTER_QUALIFIER =
     psiElement().afterLeaf(psiElement().withText(".").inside(PyReferenceExpression.class));
@@ -372,7 +373,9 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
 
   private static void putKeywords(final CompletionResultSet result, TailType tail, @NonNls @NotNull String... words) {
     for (String s : words) {
-      result.addElement(TailTypeDecorator.withTail(new PythonLookupElement(s, true, null), tail));
+      PythonLookupElement lookupElement = new PythonLookupElement(s, true, null);
+      lookupElement.putUserData(PyCompletionMlElementInfo.Companion.getKey(), PyCompletionMlElementKind.KEYWORD.asInfo());
+      result.addElement(TailTypeDecorator.withTail(lookupElement, tail));
     }
   }
 
@@ -380,6 +383,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
                                  CompletionResultSet result) {
     final PythonLookupElement lookupElement = new PythonLookupElement(keyword, true, null);
     lookupElement.setHandler(handler);
+    lookupElement.putUserData(PyCompletionMlElementInfo.Companion.getKey(), PyCompletionMlElementKind.KEYWORD.asInfo());
     result.addElement(TailTypeDecorator.withTail(lookupElement, tail));
   }
 
@@ -798,6 +802,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
         if (myInsertHandler != null) {
           element.setHandler(myInsertHandler);
         }
+        element.putUserData(PyCompletionMlElementInfo.Companion.getKey(), PyCompletionMlElementKind.KEYWORD.asInfo());
         result.addElement(TailTypeDecorator.withTail(element, myTailType));
       }
     }

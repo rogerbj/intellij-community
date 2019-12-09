@@ -30,6 +30,8 @@ import com.intellij.openapi.wm.WeakFocusStackManager;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.components.panels.Wrapper;
+import com.intellij.ui.jcef.HwFacadeJPanel;
+import com.intellij.ui.jcef.HwFacadeNonOpaquePanel;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.Alarm;
 import com.intellij.util.Consumer;
@@ -59,8 +61,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 
 import static com.intellij.util.ui.UIUtil.useSafely;
 
-public class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaConsumer {
-
+public final class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaConsumer {
   private static final Logger LOG = Logger.getInstance(BalloonImpl.class);
 
   /**
@@ -822,7 +823,7 @@ public class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaConsumer {
 
   @Override
   public void revalidate(@NotNull PositionTracker<Balloon> tracker) {
-    if (ApplicationManager.getApplication().isDisposeInProgress()) {
+    if (ApplicationManager.getApplication().isDisposed()) {
       return;
     }
     RelativePoint newPosition = tracker.recalculateLocation(this);
@@ -1188,9 +1189,7 @@ public class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaConsumer {
       if (balloon.myCornerToPointerDistance < indent) return indent;
 
       int limit = this == ABOVE || this == BELOW ? size.width - indent : size.height - indent;
-      if (balloon.myCornerToPointerDistance > limit) return limit;
-
-      return balloon.myCornerToPointerDistance;
+      return Math.min(balloon.myCornerToPointerDistance, limit);
     }
 
     abstract Point getLocation(final Dimension containerSize, final Point targetPoint, final Dimension balloonSize, int distance);
@@ -1637,7 +1636,7 @@ public class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaConsumer {
     void layout(@NotNull Rectangle bounds);
   }
 
-  public class ActionButton extends NonOpaquePanel implements IdeGlassPane.TopComponent {
+  public class ActionButton extends HwFacadeNonOpaquePanel implements IdeGlassPane.TopComponent {
     private final Icon myIcon;
     private final Icon myHoverIcon;
     private final Consumer<? super MouseEvent> myListener;
@@ -1700,7 +1699,7 @@ public class BalloonImpl implements Balloon, IdeTooltip.Ui, ScreenAreaConsumer {
     }
   }
 
-  private class MyComponent extends JPanel implements ComponentWithMnemonics {
+  private class MyComponent extends HwFacadeJPanel implements ComponentWithMnemonics {
 
     private BufferedImage myImage;
     private float myAlpha;

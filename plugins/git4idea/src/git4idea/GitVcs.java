@@ -202,7 +202,7 @@ public final class GitVcs extends AbstractVcs {
 
   @Override
   public boolean isVersionedDirectory(VirtualFile dir) {
-    return dir.isDirectory() && GitUtil.gitRootOrNull(dir) != null;
+    return dir.isDirectory() && GitUtil.isUnderGit(dir);
   }
 
   @Override
@@ -361,7 +361,7 @@ public final class GitVcs extends AbstractVcs {
 
   @Nullable
   @Override
-  public CommittedChangeList loadRevisions(VirtualFile vf, VcsRevisionNumber number) {
+  public CommittedChangeList loadRevisions(@NotNull VirtualFile vf, @NotNull VcsRevisionNumber number) {
     GitRepository repository = GitRepositoryManager.getInstance(myProject).getRepositoryForFile(vf);
     if (repository == null) return null;
 

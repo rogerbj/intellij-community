@@ -31,7 +31,14 @@ public class AllClassesSearchExecutor implements QueryExecutor<PsiClass, AllClas
     SearchScope scope = queryParameters.getScope();
 
     if (scope instanceof GlobalSearchScope) {
-      return processAllClassesInGlobalScope((GlobalSearchScope)scope, queryParameters, consumer);
+      PsiManager manager = PsiManager.getInstance(queryParameters.getProject());
+      manager.startBatchFilesProcessingMode();
+      try {
+        return processAllClassesInGlobalScope((GlobalSearchScope)scope, queryParameters, consumer);
+      }
+      finally {
+        manager.finishBatchFilesProcessingMode();
+      }
     }
 
     PsiElement[] scopeRoots = ((LocalSearchScope)scope).getScope();
@@ -91,7 +98,7 @@ public class AllClassesSearchExecutor implements QueryExecutor<PsiClass, AllClas
 
     final JavaElementVisitor visitor = scopeRoot instanceof PsiCompiledElement ? new JavaRecursiveElementVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         if (!stopped[0]) {
           super.visitElement(element);
         }
@@ -104,7 +111,7 @@ public class AllClassesSearchExecutor implements QueryExecutor<PsiClass, AllClas
       }
     } : new JavaRecursiveElementWalkingVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         if (!stopped[0]) {
           super.visitElement(element);
         }

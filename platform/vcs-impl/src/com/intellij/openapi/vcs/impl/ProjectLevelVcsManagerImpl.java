@@ -68,7 +68,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @State(name = "ProjectLevelVcsManager", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
 public final class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx implements PersistentStateComponent<Element>, Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl");
+  private static final Logger LOG = Logger.getInstance(ProjectLevelVcsManagerImpl.class);
   @NonNls private static final String SETTINGS_EDITED_MANUALLY = "settingsEditedManually";
 
   private final ProjectLevelVcsManagerSerialization mySerialization;
@@ -746,9 +746,9 @@ public final class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx i
     LOG.assertTrue(myBackgroundRunningTasks.remove(new ActionKey(keys)));
   }
 
-  public void addInitializationRequest(final VcsInitObject vcsInitObject, final Runnable runnable) {
+  public void addInitializationRequest(@NotNull VcsInitObject vcsInitObject, @NotNull Runnable runnable) {
     if (myInitialization != null) {
-      ApplicationManager.getApplication().runReadAction(() -> myInitialization.add(vcsInitObject, runnable));
+      myInitialization.add(vcsInitObject, runnable);
     }
   }
 

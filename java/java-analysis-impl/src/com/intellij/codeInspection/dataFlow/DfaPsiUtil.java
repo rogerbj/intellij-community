@@ -26,12 +26,21 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.containers.Stack;
+import com.siyeh.ig.callMatcher.CallMatcher;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
+import static com.intellij.psi.CommonClassNames.*;
+import static com.siyeh.ig.callMatcher.CallMatcher.staticCall;
+
 public class DfaPsiUtil {
+
+  private static final CallMatcher NON_NULL_VAR_ARG = CallMatcher.anyOf(
+    staticCall(JAVA_UTIL_LIST, "of"),
+    staticCall(JAVA_UTIL_SET, "of"),
+    staticCall(JAVA_UTIL_MAP, "ofEntries"));
 
   public static boolean isFinalField(PsiVariable var) {
     return var.hasModifierProperty(PsiModifier.FINAL) && !var.hasModifierProperty(PsiModifier.TRANSIENT) && var instanceof PsiField;
@@ -170,29 +179,36 @@ public class DfaPsiUtil {
 
   @NotNull
   public static Nullability getTypeNullability(@Nullable PsiType type) {
-    if (type == null || type instanceof PsiPrimitiveType) return Nullability.UNKNOWN;
+    NullabilityAnnotationInfo info = getTypeNullabilityInfo(type);
+    return info == null ? Nullability.UNKNOWN : info.getNullability();
+  }
 
-    Ref<Nullability> result = Ref.create(Nullability.UNKNOWN);
+  @Nullable
+  public static NullabilityAnnotationInfo getTypeNullabilityInfo(@Nullable PsiType type) {
+    if (type == null || type instanceof PsiPrimitiveType) return null;
+
+    Ref<NullabilityAnnotationInfo> result = Ref.create(null);
     InheritanceUtil.processSuperTypes(type, true, eachType -> {
       result.set(getTypeOwnNullability(eachType));
-      return result.get() == Nullability.UNKNOWN;
+      return result.get() == null &&
+             (!(type instanceof PsiClassType) || PsiUtil.resolveClassInClassTypeOnly(type) instanceof PsiTypeParameter);
     });
     return result.get();
   }
 
-  @NotNull
-  private static Nullability getTypeOwnNullability(PsiType eachType) {
+  @Nullable
+  private static NullabilityAnnotationInfo getTypeOwnNullability(PsiType eachType) {
     for (PsiAnnotation annotation : eachType.getAnnotations()) {
       String qualifiedName = annotation.getQualifiedName();
       NullableNotNullManager nnn = NullableNotNullManager.getInstance(annotation.getProject());
       if (nnn.getNullables().contains(qualifiedName)) {
-        return Nullability.NULLABLE;
+        return new NullabilityAnnotationInfo(annotation, Nullability.NULLABLE, false);
       }
       if (nnn.getNotNulls().contains(qualifiedName)) {
-        return Nullability.NOT_NULL;
+        return new NullabilityAnnotationInfo(annotation, Nullability.NOT_NULL, false);
       }
     }
-    return Nullability.UNKNOWN;
+    return null;
   }
 
   /**
@@ -210,14 +226,16 @@ public class DfaPsiUtil {
     }
     PsiClassType type = ObjectUtils.tryCast(LambdaUtil.getFunctionalInterfaceType(function, true), PsiClassType.class);
     PsiMethod sam = LambdaUtil.getFunctionalInterfaceMethod(type);
-    if (sam != null && index < sam.getParameterList().getParametersCount()) {
-      PsiParameter parameter = sam.getParameterList().getParameters()[index];
-      nullability = getElementNullability(null, parameter);
-      if(nullability != Nullability.UNKNOWN) {
-        return nullability;
+    if (sam != null) {
+      PsiParameter parameter = sam.getParameterList().getParameter(index);
+      if (parameter != null) {
+        nullability = getElementNullability(null, parameter);
+        if (nullability != Nullability.UNKNOWN) {
+          return nullability;
+        }
+        PsiType parameterType = type.resolveGenerics().getSubstitutor().substitute(parameter.getType());
+        return getTypeNullability(GenericsUtil.eliminateWildcards(parameterType, false, true));
       }
-      PsiType parameterType = type.resolveGenerics().getSubstitutor().substitute(parameter.getType());
-      return getTypeNullability(GenericsUtil.eliminateWildcards(parameterType, false, true));
     }
     return Nullability.UNKNOWN;
   }
@@ -248,7 +266,7 @@ public class DfaPsiUtil {
   private static Nullability getLambdaParameterNullability(@NotNull PsiMethod method, int parameterIndex, int lambdaParameterIndex) {
     PsiClass type = method.getContainingClass();
     if(type != null) {
-      if(CommonClassNames.JAVA_UTIL_OPTIONAL.equals(type.getQualifiedName())) {
+      if(JAVA_UTIL_OPTIONAL.equals(type.getQualifiedName())) {
         String methodName = method.getName();
         if((methodName.equals("map") || methodName.equals("filter") || methodName.equals("ifPresent") || methodName.equals("flatMap"))
           && parameterIndex == 0 && lambdaParameterIndex == 0) {
@@ -266,7 +284,7 @@ public class DfaPsiUtil {
       if (containingClass != null && containingClass.isEnum()) {
         PsiParameter[] parameters = method.getParameterList().getParameters();
         if ("values".equals(methodName)) return parameters.length == 0;
-        return parameters.length == 1 && parameters[0].getType().equalsToText(CommonClassNames.JAVA_LANG_STRING);
+        return parameters.length == 1 && parameters[0].getType().equalsToText(JAVA_LANG_STRING);
       }
     }
     return false;
@@ -299,7 +317,7 @@ public class DfaPsiUtil {
       public Result<Set<PsiField>> compute() {
         final PsiCodeBlock body = constructor.getBody();
         final Map<PsiField, Boolean> map = new HashMap<>();
-        final StandardDataFlowRunner dfaRunner = new StandardDataFlowRunner(false, null) {
+        final DataFlowRunner dfaRunner = new DataFlowRunner() {
 
           private boolean isCallExposingNonInitializedFields(Instruction instruction) {
             if (!(instruction instanceof MethodCallInstruction)) {
@@ -364,7 +382,7 @@ public class DfaPsiUtil {
             }
           }
         }
-        return Result.create(notNullFields, constructor, PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+        return Result.create(notNullFields, constructor, PsiModificationTracker.MODIFICATION_COUNT);
       }
     });
   }
@@ -501,5 +519,49 @@ public class DfaPsiUtil {
       return true;
     }
     return false;
+  }
+
+  /**
+   * @param method method to check
+   * @return nullability of vararg parameter component; {@link Nullability#UNKNOWN} if not specified or method is not vararg method.
+   */
+  @NotNull
+  static Nullability getVarArgComponentNullability(PsiMethod method) {
+    if (method != null) {
+      if (NON_NULL_VAR_ARG.methodMatches(method)) {
+        return Nullability.NOT_NULL;
+      }
+      PsiParameter varArg = ArrayUtil.getLastElement(method.getParameterList().getParameters());
+      if (varArg != null) {
+        PsiType type = varArg.getType();
+        if (type instanceof PsiEllipsisType) {
+          PsiType componentType = ((PsiEllipsisType)type).getComponentType();
+          return getTypeNullability(componentType);
+        }
+      }
+    }
+    return Nullability.UNKNOWN;
+  }
+
+  /**
+   * Try to restore type parameters based on the expression type
+   *
+   * @param expression expression which type is a supertype of the type to generify
+   * @param type a type to generify
+   * @return a generified type, or original type if generification is not possible
+   */
+  public static PsiType tryGenerify(PsiExpression expression, PsiType type) {
+    if (!(type instanceof PsiClassType)) {
+      return type;
+    }
+    PsiClassType classType = (PsiClassType)type;
+    if (!classType.isRaw()) {
+      return classType;
+    }
+    PsiClass psiClass = classType.resolve();
+    if (psiClass == null) return classType;
+    PsiType expressionType = expression.getType();
+    if (!(expressionType instanceof PsiClassType)) return classType;
+    return GenericsUtil.getExpectedGenericType(expression, psiClass, (PsiClassType)expressionType);
   }
 }

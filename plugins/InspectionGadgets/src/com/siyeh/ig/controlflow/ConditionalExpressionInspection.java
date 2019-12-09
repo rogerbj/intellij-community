@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.JavaPsiConstructorUtil;
@@ -32,10 +33,7 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
-import com.siyeh.ig.psiutils.CommentTracker;
-import com.siyeh.ig.psiutils.ExpectedTypeUtils;
-import com.siyeh.ig.psiutils.MethodCallUtils;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -207,7 +205,14 @@ public class ConditionalExpressionInspection extends BaseInspection {
         if (addBraces || elseExpression == null) {
           newStatement.append('}');
         }
-        PsiReplacementUtil.replaceStatement(statement, newStatement.toString(), tracker);
+        final PsiIfStatement result = (PsiIfStatement)PsiReplacementUtil.replaceStatement(statement, newStatement.toString(), tracker);
+        if (!ControlFlowUtils.statementMayCompleteNormally(result.getThenBranch())) {
+          final PsiStatement elseBranch = result.getElseBranch();
+          if (elseBranch != null) {
+            result.getParent().addAfter(ControlFlowUtils.stripBraces(elseBranch), result);
+            elseBranch.delete();
+          }
+        }
       }
     }
 
@@ -276,11 +281,8 @@ public class ConditionalExpressionInspection extends BaseInspection {
         // can't be fixed
         return;
       }
-      PsiElement parent = expression.getParent();
-      while (parent instanceof PsiParenthesizedExpression) {
-        parent = parent.getParent();
-      }
-      
+      PsiElement parent = PsiUtil.skipParenthesizedExprUp(expression.getParent());
+
       if (parent instanceof PsiLocalVariable) {
         PsiTypeElement typeElement = ((PsiLocalVariable)parent).getTypeElement();
         if (typeElement.isInferredType() && !PsiTypesUtil.isDenotableType(typeElement.getType(), typeElement)) {

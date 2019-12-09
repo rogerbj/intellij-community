@@ -40,7 +40,7 @@ import java.util.List;
  * @author jeka
  */
 public abstract class PersistentEnumeratorBase<Data> implements DataEnumeratorEx<Data>, Forceable, Closeable {
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.util.io.PersistentEnumerator");
+  protected static final Logger LOG = Logger.getInstance(PersistentEnumerator.class);
   protected static final int NULL_ID = 0;
 
   private static final int META_DATA_OFFSET = 4;
@@ -226,7 +226,7 @@ public abstract class PersistentEnumeratorBase<Data> implements DataEnumeratorEx
       unlockStorage();
     }
 
-    if (myDataDescriptor instanceof InlineKeyDescriptor) {
+    if (inlineKeyStorage(dataDescriptor)) {
       myKeyStorage = null;
     }
     else {
@@ -244,6 +244,10 @@ public abstract class PersistentEnumeratorBase<Data> implements DataEnumeratorEx
       }
     }
     myAssumeDifferentSerializedBytesMeansObjectsInequality = myDataDescriptor instanceof DifferentSerializableBytesImplyNonEqualityPolicy;
+  }
+
+  public static boolean inlineKeyStorage(@NotNull KeyDescriptor<?> descriptor) {
+    return descriptor instanceof InlineKeyDescriptor;
   }
 
   void lockStorage() {

@@ -15,6 +15,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.openapi.module.JavaModuleType;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
@@ -37,6 +38,7 @@ import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.Processor;
+import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.uast.UClass;
@@ -127,8 +129,12 @@ public class GlobalJavaInspectionContextImpl extends GlobalJavaInspectionContext
           InspectionsBundle.message("offline.inspections.jdk.not.found", ProjectRootManager.getInstance(project).getProjectSdkName()));
         return false;
       }
+
       for (Module module : modules) {
         final ModuleRootManager rootManager = ModuleRootManager.getInstance(module);
+        if (ModuleType.get(module) instanceof JavaModuleType && rootManager.getSourceRoots(true).length == 0) {
+          LOG.info(InspectionsBundle.message("offline.inspections.no.source.roots", module.getName()));
+        }
         final OrderEntry[] entries = rootManager.getOrderEntries();
         for (OrderEntry entry : entries) {
           if (entry instanceof JdkOrderEntry) {
@@ -148,7 +154,7 @@ public class GlobalJavaInspectionContextImpl extends GlobalJavaInspectionContext
             else {
               Set<String> detectedUrls =
                 Arrays.stream(library.getFiles(OrderRootType.CLASSES)).map(file -> file.getUrl()).collect(Collectors.toSet());
-              HashSet<String> declaredUrls = new HashSet<>(Arrays.asList(library.getUrls(OrderRootType.CLASSES)));
+              Set<String> declaredUrls = ContainerUtil.set(library.getUrls(OrderRootType.CLASSES));
               declaredUrls.removeAll(detectedUrls);
               declaredUrls.removeIf(library::isJarDirectory);
               if (!declaredUrls.isEmpty()) {

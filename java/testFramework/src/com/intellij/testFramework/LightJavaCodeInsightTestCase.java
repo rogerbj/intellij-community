@@ -1,7 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.openapi.module.ModuleTypeId;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ex.ProjectEx;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.Disposer;
@@ -60,11 +62,12 @@ public abstract class LightJavaCodeInsightTestCase extends LightPlatformCodeInsi
     return LanguageLevel.HIGHEST;
   }
 
-  protected void setLanguageLevel(LanguageLevel level) {
-    LanguageLevelProjectExtension extension = LanguageLevelProjectExtension.getInstance(getProject());
+  protected void setLanguageLevel(@NotNull LanguageLevel level) {
+    Project project = getProject();
+    LanguageLevelProjectExtension extension = LanguageLevelProjectExtension.getInstance(project);
     LanguageLevel prev = extension.getLanguageLevel();
     extension.setLanguageLevel(level);
-    Disposer.register(getTestRootDisposable(), () -> extension.setLanguageLevel(prev));
+    Disposer.register(((ProjectEx)project).getEarlyDisposable(), () -> extension.setLanguageLevel(prev));
   }
 
   @Override

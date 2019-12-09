@@ -13,6 +13,7 @@ import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
+import com.intellij.openapi.vfs.newvfs.impl.CachedFileType;
 import com.intellij.openapi.vfs.newvfs.impl.FileNameCache;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualDirectoryImpl;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
@@ -32,7 +33,6 @@ import org.jetbrains.annotations.TestOnly;
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
-import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1046,6 +1046,7 @@ public class FSRecords {
     DbConnection.markDirty();
     //noinspection NonAtomicOperationOnVolatileField
     ourLocalModificationCount++;
+    CachedFileType.clearCache();
   }
 
   static int getLocalModCount() {
@@ -1479,12 +1480,19 @@ public class FSRecords {
     return readAndHandleErrors(() -> getContentRecordId(fileId));
   }
 
+  static byte[] getContentHash(int fileId) {
+    if (!WE_HAVE_CONTENT_HASHES) return null;
+
+    return readAndHandleErrors(() -> {
+      int contentId = getContentRecordId(fileId);
+      return contentId <= 0 ? null : getContentHashesEnumerator().valueOf(contentId);
+    });
+  }
+
   @NotNull
   static DataOutputStream writeContent(int fileId, boolean readOnly) {
     return new ContentOutputStream(fileId, readOnly);
   }
-
-  private static final MessageDigest myDigest = ContentHashesUtil.createHashDigest();
 
   static void writeContent(int fileId, ByteArraySequence bytes, boolean readOnly) {
     //noinspection IOResourceOpenedButNotSafelyClosed
@@ -1595,15 +1603,13 @@ public class FSRecords {
   private static int contents;
   private static int reuses;
 
+  private static final MessageDigest ourDigest = ContentHashesUtil.createHashDigest();
+
   private static int findOrCreateContentRecord(byte[] bytes, int offset, int length) throws IOException {
     assert WE_HAVE_CONTENT_HASHES;
 
     long started = DUMP_STATISTICS ? System.nanoTime():0;
-    myDigest.reset();
-    myDigest.update(String.valueOf(length - offset).getBytes(Charset.defaultCharset()));
-    myDigest.update("\0".getBytes(Charset.defaultCharset()));
-    myDigest.update(bytes, offset, length);
-    byte[] digest = myDigest.digest();
+    byte[] digest = calculateContentHash(ourDigest, bytes, offset, length);
     long done = DUMP_STATISTICS ? System.nanoTime() - started : 0;
     time += done;
 
@@ -1630,6 +1636,14 @@ public class FSRecords {
 
       return -page;
     }
+  }
+
+  public static byte[] calculateContentHash(MessageDigest digest, byte[] bytes, int offset, int length) {
+    digest.reset();
+    digest.update(String.valueOf(length).getBytes(ContentHashesUtil.HASHER_CHARSET));
+    digest.update("\0".getBytes(ContentHashesUtil.HASHER_CHARSET));
+    digest.update(bytes, offset, length);
+    return digest.digest();
   }
 
   private static class AttributeOutputStream extends DataOutputStream {

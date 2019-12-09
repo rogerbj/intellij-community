@@ -48,6 +48,7 @@ import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.impl.status.StatusBarUtil;
@@ -69,6 +70,7 @@ import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
+import com.jetbrains.jdi.VirtualMachineManagerImpl;
 import com.sun.jdi.*;
 import com.sun.jdi.connect.*;
 import com.sun.jdi.request.EventRequest;
@@ -88,12 +90,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class DebugProcessImpl extends UserDataHolderBase implements DebugProcess {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.DebugProcessImpl");
+  private static final Logger LOG = Logger.getInstance(DebugProcessImpl.class);
 
-  @NonNls private static final String SOCKET_ATTACHING_CONNECTOR_NAME = "com.sun.jdi.SocketAttach";
-  @NonNls private static final String SHMEM_ATTACHING_CONNECTOR_NAME = "com.sun.jdi.SharedMemoryAttach";
-  @NonNls public static final String SOCKET_LISTENING_CONNECTOR_NAME = "com.sun.jdi.SocketListen";
-  @NonNls private static final String SHMEM_LISTENING_CONNECTOR_NAME = "com.sun.jdi.SharedMemoryListen";
+  private static final String CONNECTOR_PACKAGE = "com." + (Registry.is("debugger.jb.jdi") ? "jetbrains" : "sun") + ".jdi.";
+  @NonNls private static final String SOCKET_ATTACHING_CONNECTOR_NAME = CONNECTOR_PACKAGE + "SocketAttach";
+  @NonNls private static final String SHMEM_ATTACHING_CONNECTOR_NAME = CONNECTOR_PACKAGE + "SharedMemoryAttach";
+  @NonNls public static final String SOCKET_LISTENING_CONNECTOR_NAME = CONNECTOR_PACKAGE + "SocketListen";
+  @NonNls private static final String SHMEM_LISTENING_CONNECTOR_NAME = CONNECTOR_PACKAGE + "SharedMemoryListen";
 
   private final Project myProject;
   private final RequestManagerImpl myRequestManager;
@@ -311,7 +314,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         return;
       }
       if(myConnection.isServerMode()) {
-        ((ListeningConnector)findConnector(SOCKET_LISTENING_CONNECTOR_NAME)).stopListening(arguments);
+        ((ListeningConnector)findConnector(myConnection.isUseSockets(), true)).stopListening(arguments);
       }
     }
     catch (IOException | IllegalConnectorArgumentsException | IllegalArgumentException e) {
@@ -456,7 +459,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         throw new IOException(DebuggerBundle.message("error.debugger.already.listening"));
       }
 
-      final String address = myConnection.getAddress();
+      final String port = myConnection.getDebuggerAddress();
 
       if (myConnection instanceof PidRemoteConnection && !((PidRemoteConnection)myConnection).isFixedAddress()) {
         PidRemoteConnection pidRemoteConnection = (PidRemoteConnection)myConnection;
@@ -474,7 +477,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           return attachConnector((AttachingConnector)connector);
         }
         else {
-          return connectorListen(address, (ListeningConnector)connector);
+          return connectorListen(port, (ListeningConnector)connector);
         }
       }
       else if (myConnection.isServerMode()) {
@@ -483,31 +486,31 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         if (myArguments == null) {
           throw new CantRunException(DebuggerBundle.message("error.no.debug.listen.port"));
         }
-        return connectorListen(address, connector);
+        return connectorListen(port, connector);
       }
       else { // is client mode, should attach to already running process
         AttachingConnector connector = (AttachingConnector)findConnector(myConnection.isUseSockets(), false);
         myArguments = connector.defaultArguments();
         if (myConnection.isUseSockets()) {
           final Connector.Argument hostnameArg = myArguments.get("hostname");
-          if (hostnameArg != null && myConnection.getHostName() != null) {
-            hostnameArg.setValue(myConnection.getHostName());
+          if (hostnameArg != null && myConnection.getDebuggerHostName() != null) {
+            hostnameArg.setValue(myConnection.getDebuggerHostName());
           }
-          if (address == null) {
+          if (port == null) {
             throw new CantRunException(DebuggerBundle.message("error.no.debug.attach.port"));
           }
           final Connector.Argument portArg = myArguments.get("port");
           if (portArg != null) {
-            portArg.setValue(address);
+            portArg.setValue(port);
           }
         }
         else {
-          if (address == null) {
+          if (port == null) {
             throw new CantRunException(DebuggerBundle.message("error.no.shmem.address"));
           }
           final Connector.Argument nameArg = myArguments.get("name");
           if (nameArg != null) {
-            nameArg.setValue(address);
+            nameArg.setValue(port);
           }
         }
         final Connector.Argument timeoutArg = myArguments.get("timeout");
@@ -555,7 +558,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       if (port != null) {
         listeningAddress = port;
       }
-      myConnection.setAddress(listeningAddress);
+      myConnection.setDebuggerAddress(listeningAddress);
+      myConnection.setApplicationAddress(listeningAddress);
 
       myDebugProcessDispatcher.getMulticaster().connectorIsReady();
 
@@ -609,12 +613,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   @NotNull
   public static Connector findConnector(String connectorName) throws ExecutionException {
     VirtualMachineManager virtualMachineManager;
-    try {
-      virtualMachineManager = Bootstrap.virtualMachineManager();
+    if (Registry.is("debugger.jb.jdi")) {
+      virtualMachineManager = VirtualMachineManagerImpl.virtualMachineManager();
     }
-    catch (Error e) {
-      throw new ExecutionException(DebuggerBundle.message("debugger.jdi.bootstrap.error",
-                                                          e.getClass().getName() + " : " + e.getLocalizedMessage()));
+    else {
+      try {
+        virtualMachineManager = Bootstrap.virtualMachineManager();
+      }
+      catch (Error e) {
+        throw new ExecutionException(DebuggerBundle.message("debugger.jdi.bootstrap.error",
+                                                            e.getClass().getName() + " : " + e.getLocalizedMessage()));
+      }
     }
     return StreamEx.of(virtualMachineManager.allConnectors())
       .findFirst(c -> connectorName.equals(c.name()))

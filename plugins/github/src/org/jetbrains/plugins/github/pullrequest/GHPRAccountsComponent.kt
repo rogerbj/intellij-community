@@ -67,20 +67,19 @@ internal class GHPRAccountsComponent(private val authManager: GithubAuthenticati
 
   private fun showLoginPanel() {
     setCenteredContent(GithubUIUtil.createNoteWithAction(::requestNewAccount).apply {
-      append("Log in", SimpleTextAttributes.LINK_ATTRIBUTES, Runnable { requestNewAccount() })
+      append("Log in", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES, Runnable { requestNewAccount() })
       append(" to GitHub to view pull requests", SimpleTextAttributes.GRAYED_ATTRIBUTES)
     })
   }
 
   private fun requestNewAccount() {
-    val account = authManager.requestNewAccount(project) ?: return
-    setActualContent(account)
+    authManager.requestNewAccount(project)
     IdeFocusManager.getInstance(project).requestFocusInProject(this@GHPRAccountsComponent, project)
   }
 
   private fun showChooseAccountPanel(accounts: List<GithubAccount>) {
     setCenteredContent(GithubUIUtil.createNoteWithAction { chooseAccount(accounts) }.apply {
-      append("Select", SimpleTextAttributes.LINK_ATTRIBUTES, Runnable { chooseAccount(accounts) })
+      append("Select", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES, Runnable { chooseAccount(accounts) })
       append(" GitHub account to view pull requests", SimpleTextAttributes.GRAYED_ATTRIBUTES)
     })
   }

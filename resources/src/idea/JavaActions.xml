@@ -18,8 +18,6 @@
     <group id="JavaNewProjectOrModuleGroup">
       <action id="NewProject" class="com.intellij.ide.actions.NewProjectAction" text="Project..."/>
       <action id="ImportProject" class="com.intellij.ide.actions.ImportProjectAction" text="Project from Existing Sources..."/>
-      <group id="NewProjectFromVCS" class="com.intellij.openapi.vcs.checkout.NewProjectFromVCSGroup" text="Project from Version Control"
-             popup="true"/>
       <action class="com.intellij.openapi.wm.impl.welcomeScreen.ProjectFromVersionControlAction" text="Project from Version Control..."/>
       <separator/>
       <action id="NewModule" class="com.intellij.openapi.roots.ui.configuration.actions.NewModuleAction" text="Module..."/>
@@ -38,7 +36,7 @@
 
     <action id="ShowProjectStructureSettings" class="com.intellij.ide.actions.ShowStructureSettingsAction"
             icon="AllIcons.General.ProjectStructure">
-      <add-to-group group-id="FileMainSettingsGroup" anchor="after" relative-to-action="ShowSettings"/>
+      <add-to-group group-id="FileMenu" anchor="before" relative-to-action="FilePropertiesGroup"/>
       <add-to-group group-id="MainToolBarSettings" anchor="after" relative-to-action="ShowSettings"/>
       <add-to-group group-id="NavBarToolBar" relative-to-action="NavBarToolBarOthers" anchor="after"/>
     </action>
@@ -54,7 +52,7 @@
 
     <action class="com.intellij.execution.testDiscovery.actions.ShowAffectedTestsAction" id="ShowDiscoveredTests"
             text="Show Affected Tests">
-      <add-to-group group-id="RunMenu" anchor="before" relative-to-action="DebugMainMenu"/>
+      <add-to-group group-id="RunTestGroup" anchor="last"/>
       <add-to-group group-id="ChangesViewPopupMenu" anchor="last"/>
     </action>
 
@@ -96,7 +94,6 @@
       <separator/>
       <action id="CompileProject" class="com.intellij.compiler.actions.CompileProjectAction"/>
       <separator/>
-      <action id="GenerateAntBuild" class="com.intellij.compiler.actions.GenerateAntBuildAction"/>
       <separator/>
       <action id="BuildArtifact" class="com.intellij.compiler.actions.BuildArtifactAction"/>
 
@@ -272,21 +269,6 @@
       <reference ref="ExternalToolsGroup"/>
     </group>
 
-    <!--  TODO: fix
-      <group id="UsageView.Popup">-->
-    <!--<reference ref="EditSource"/>-->
-    <!--<action id="UsageView.Include" class="com.intellij.usages.actions.IncludeUsageAction"/>-->
-    <!--<action id="UsageView.Exclude" class="com.intellij.usages.actions.ExcludeUsageAction"/>-->
-    <!--<separator/>-->
-    <!--<reference ref="AddToFavorites"/>-->
-    <!--<reference ref="FindUsages"/>-->
-    <!--<action id="UsageView.ShowRecentFindUsages" class="com.intellij.find.impl.ShowRecentFindUsagesAction" icon="/actions/back.png"/>-->
-    <!--<separator/>-->
-    <!--<reference ref="VersionControlsGroup"/>-->
-    <!--<separator/>-->
-    <!--<reference ref="ExternalToolsGroup"/>-->
-    <!--</group>-->
-
     <!-- ****************************************************************** -->
 
     <group id="WelcomeScreen.Documentation.IDEA">
@@ -384,6 +366,7 @@
     <action id="IntroduceFunctionalParameter" class="com.intellij.refactoring.actions.IntroduceFunctionalParameterAction">
       <add-to-group group-id="IntroduceActionsGroup" anchor="before" relative-to-action="IntroduceParameterObject"/>
       <keyboard-shortcut first-keystroke="control shift alt P" keymap="$default"/>
+      <keyboard-shortcut first-keystroke="control shift alt P" keymap="$default"/>
     </action>
 
     <action id="IntroduceFunctionalVariable" class="com.intellij.refactoring.actions.IntroduceFunctionalVariableAction">
@@ -413,27 +396,29 @@
       <add-to-group group-id="RefactoringMenu" anchor="after" relative-to-action="MemberPushDown"/>
     </group>
 
-    <!-- The action remains for compabitility but is not added to menus because it does the same thing as Move, which is now
+    <!-- The action remains for compatibility but is not added to menus because it does the same thing as Move, which is now
          correctly labeled -->
     <action id="AnonymousToInner" class="com.intellij.refactoring.actions.AnonymousToInnerAction"/>
 
     <action id="Hotswap" class="com.intellij.debugger.actions.HotSwapAction">
-      <add-to-group group-id="DebugMainMenu" anchor="after" relative-to-action="UpdateRunningApplication"/>
+      <add-to-group group-id="DebugReloadGroup" anchor="last"/>
     </action>
 
     <action id="Debugger.PopFrame" class="com.intellij.debugger.actions.PopFrameAction" icon="AllIcons.Actions.PopFrame">
-      <add-to-group group-id="DebugMainMenu" anchor="after" relative-to-action="ForceRunToCursor"/>
+      <add-to-group group-id="DebuggingActionsGroup" anchor="after" relative-to-action="ForceRunToCursor"/>
       <add-to-group group-id="XDebugger.Frames.Tree.Popup" anchor="first"/>
       <add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="before" relative-to-action="RunToCursor"/>
     </action>
 
     <group id="ToggleBreakpointAction">
-      <action id="ToggleMethodBreakpoint" class="com.intellij.debugger.actions.ToggleMethodBreakpointAction"/>
+      <action id="ToggleMethodBreakpoint" class="com.intellij.debugger.actions.ToggleMethodBreakpointAction">
+        <override-text place="MainMenu"/>
+      </action>
       <action id="ToggleFieldBreakpoint" class="com.intellij.debugger.actions.ToggleFieldBreakpointAction">
+        <override-text place="MainMenu"/>
         <add-to-group group-id="XDebugger.ValueGroup" anchor="after" relative-to-action="Debugger.AddToWatch"/>
       </action>
-      <!--Moved to XDebugger <action id="ToggleBreakpointEnabled" class="com.intellij.debugger.actions.ToggleBreakpointEnabledAction"/>-->
-      <add-to-group group-id="DebugMainMenu" anchor="after" relative-to-action="ToggleLineBreakpoint"/>
+      <add-to-group group-id="BreakpointActionsGroup" anchor="after" relative-to-action="ToggleLineBreakpoint"/>
     </group>
 
     <action id="ExportThreads" class="com.intellij.debugger.actions.ExportThreadsAction" icon="AllIcons.ToolbarDecorator.Export">
@@ -441,7 +426,7 @@
       <add-to-group group-id="XDebugger.Actions"/>
     </action>
     <action id="DumpThreads" class="com.intellij.debugger.actions.ThreadDumpAction" text="Get Thread Dump" icon="AllIcons.Actions.Dump">
-      <add-to-group group-id="RunMenu" anchor="last"/>
+      <add-to-group group-id="DebuggingActionsGroup" anchor="last"/>
     </action>
 
     <action id="GenerateJavadoc" class="com.intellij.javadoc.actions.GenerateJavadocAction">
@@ -466,6 +451,9 @@
 
       <action id="DumpIndex" internal="true" class="com.intellij.internal.DumpIndexAction"
               text="Dump Index"/>
+
+      <action id="InspectStubIndex" internal="true" class="com.intellij.internal.InspectStubIndexAction"
+              text="Inspect Stub Index"/>
 
       <add-to-group group-id="Internal"/>
     </group>
@@ -520,20 +508,18 @@
       <action id="Debugger.ShowTypes" class="com.intellij.debugger.actions.ShowTypesAction" text="Show types">
         <add-to-group group-id="XDebugger.ValueGroup" anchor="last"/>
       </action>
-      <!--<action id="Debugger.SetValue" class="com.intellij.debugger.actions.SetValueAction"/>-->
-      <!--<action id="Debugger.ShowAsHex" class="com.intellij.debugger.actions.ShowAsHexAction" text="Show as Hex"/>-->
       <action id="Debugger.ResumeThread" class="com.intellij.debugger.actions.ResumeThreadAction"/>
       <action id="Debugger.FreezeThread" class="com.intellij.debugger.actions.FreezeThreadAction"/>
       <action id="Debugger.InterruptThread" class="com.intellij.debugger.actions.InterruptThreadAction"/>
 
       <action id="Debugger.ForceEarlyReturn" class="com.intellij.debugger.actions.ForceEarlyReturnAction">
         <add-to-group group-id="XDebugger.Frames.Tree.Popup" anchor="after" relative-to-action="Debugger.PopFrame"/>
-        <add-to-group group-id="DebugMainMenu" anchor="after" relative-to-action="Debugger.PopFrame"/>
+        <add-to-group group-id="DebuggingActionsGroup" anchor="after" relative-to-action="Debugger.PopFrame"/>
       </action>
 
       <action id="Debugger.ThrowException" class="com.intellij.debugger.actions.ThrowExceptionAction">
         <add-to-group group-id="XDebugger.Frames.Tree.Popup" anchor="after" relative-to-action="Debugger.PopFrame"/>
-        <add-to-group group-id="DebugMainMenu" anchor="after" relative-to-action="Debugger.ForceEarlyReturn"/>
+        <add-to-group group-id="DebuggingActionsGroup" anchor="after" relative-to-action="Debugger.ForceEarlyReturn"/>
       </action>
 
       <action id="Debugger.AddSteppingFilter" class="com.intellij.debugger.actions.AddSteppingFilterAction" text="Add Stepping Filter...">
@@ -653,14 +639,12 @@
     </group>
 
     <action id="StartupWizard" class="com.intellij.ide.startupWizard.StartupWizardAction" internal="true">
-      <add-to-group group-id="FileSettingsGroup" anchor="last"/>
+      <add-to-group group-id="FileMenu" anchor="after" relative-to-action="ExportImportGroup"/>
     </action>
 
     <group id="Debugger.FramePanelPopup">
       <reference ref="Debugger.AdjustArrayRange"/>
-      <!--<reference ref="Debugger.Inspect"/>-->
       <reference ref="Debugger.MarkObject"/>
-      <!--<reference ref="Debugger.SetValue"/>-->
       <reference ref="Debugger.EditNodeSource"/>
       <reference ref="Debugger.EditTypeSource"/>
       <separator/>
@@ -670,51 +654,39 @@
       <separator/>
       <reference ref="ToggleFieldBreakpoint"/>
       <separator/>
-      <!--<reference ref="Debugger.CopyValue"/>-->
       <reference ref="Debugger.ViewText"/>
-      <!--<reference ref="Debugger.CompareValueWithClipboard"/>-->
       <reference ref="Debugger.CustomizeContextView"/>
     </group>
 
     <group id="Debugger.EvaluationDialogPopup">
       <reference ref="Debugger.AdjustArrayRange"/>
-      <!--<reference ref="Debugger.Inspect"/>-->
       <reference ref="Debugger.MarkObject"/>
-      <!--<reference ref="Debugger.SetValue"/>-->
       <reference ref="Debugger.EditNodeSource"/>
       <reference ref="Debugger.EditTypeSource"/>
       <separator/>
-      <!--<reference ref="Debugger.ShowAsHex"/>-->
       <reference ref="Debugger.ViewAsGroup"/>
       <separator/>
       <reference ref="Debugger.AddToWatch"/>
       <separator/>
       <reference ref="ToggleFieldBreakpoint"/>
       <separator/>
-      <!--<reference ref="Debugger.CopyValue"/>-->
       <reference ref="Debugger.ViewText"/>
-      <!--<reference ref="Debugger.CompareValueWithClipboard"/>-->
       <reference ref="Debugger.CustomizeContextView"/>
     </group>
 
     <group id="Debugger.InspectPanelPopup">
       <reference ref="Debugger.AdjustArrayRange"/>
-      <!--<reference ref="Debugger.Inspect"/>-->
       <reference ref="Debugger.MarkObject"/>
-      <!--<reference ref="Debugger.SetValue"/>-->
       <reference ref="Debugger.EditNodeSource"/>
       <reference ref="Debugger.EditTypeSource"/>
       <separator/>
       <reference ref="Debugger.AddToWatch"/>
       <separator/>
-      <!--<reference ref="Debugger.ShowAsHex"/>-->
       <reference ref="Debugger.ViewAsGroup"/>
       <separator/>
       <reference ref="ToggleFieldBreakpoint"/>
       <separator/>
-      <!--<reference ref="Debugger.CopyValue"/>-->
       <reference ref="Debugger.ViewText"/>
-      <!--<reference ref="Debugger.CompareValueWithClipboard"/>-->
       <reference ref="Debugger.CustomizeContextView"/>
     </group>
 
@@ -722,11 +694,7 @@
       <reference ref="Debugger.ResumeThread"/>
       <reference ref="Debugger.FreezeThread"/>
       <reference ref="Debugger.InterruptThread"/>
-      <!--<reference ref="Debugger.ShowFrame"/>-->
       <reference ref="Debugger.PopFrame"/>
-      <!--<reference ref="Debugger.EditFrameSource"/>-->
-      <!--<reference ref="Debugger.EditTypeSource"/>-->
-      <!--<reference ref="EditSource"/>-->
       <separator/>
       <reference ref="ExportThreads"/>
       <reference ref="Debugger.AddSteppingFilter"/>
@@ -735,28 +703,19 @@
     </group>
 
     <group id="Debugger.WatchesPanelPopup">
-      <!--<reference ref="Debugger.NewWatch"/>-->
-      <!--<reference ref="Debugger.EditWatch"/>-->
-      <!--<reference ref="Debugger.RemoveWatch"/>-->
-      <!--<reference ref="Debugger.RemoveAllWatches"/>-->
       <separator/>
       <reference ref="Debugger.AdjustArrayRange"/>
-      <!--<reference ref="Debugger.Inspect"/>-->
       <reference ref="Debugger.MarkObject"/>
-      <!--<reference ref="Debugger.SetValue"/>-->
       <reference ref="Debugger.EditNodeSource"/>
       <reference ref="Debugger.EditTypeSource"/>
       <separator/>
-      <!--<reference ref="Debugger.ShowAsHex"/>-->
       <reference ref="Debugger.ViewAsGroup"/>
       <separator/>
       <reference ref="Debugger.AddToWatch"/>
       <separator/>
       <reference ref="ToggleFieldBreakpoint"/>
       <separator/>
-      <!--<reference ref="Debugger.CopyValue"/>-->
       <reference ref="Debugger.ViewText"/>
-      <!--<reference ref="Debugger.CompareValueWithClipboard"/>-->
       <reference ref="Debugger.CustomizeContextView"/>
     </group>
 
@@ -780,7 +739,6 @@
     <action class="com.intellij.compiler.backwardRefs.view.TestCompilerRefFindUsagesAction" id="TestCompilerReferenceServiceFindUsages" internal="true"/>
     <action class="com.intellij.compiler.backwardRefs.view.TestCompilerRefFunctionalExpressionSearchAction" id="TestCompilerReferenceServiceFunctionalExpressionSearch" internal="true"/>
     <action class="com.intellij.compiler.backwardRefs.view.TestCompilerRefInheritanceAction" id="TestCompilerReferenceServiceInheritance" internal="true"/>
-
 
     <action id="MethodOverloadSwitchUp" class="com.intellij.codeInsight.editorActions.JavaMethodOverloadSwitchUpAction"/>
     <action id="MethodOverloadSwitchDown" class="com.intellij.codeInsight.editorActions.JavaMethodOverloadSwitchDownAction" />

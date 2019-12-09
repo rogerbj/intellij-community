@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.completion;
 
+import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
@@ -22,6 +23,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -53,7 +55,8 @@ public class OffsetMap implements Disposable {
       if (marker == null) throw new IllegalArgumentException("Offset " + key + " is not registered");
       if (!marker.isValid()) {
         removeOffset(key);
-        throw new IllegalStateException("Offset " + key + " is invalid: " + marker);
+        throw new IllegalStateException("Offset " + key + " is invalid: " + marker +
+                                        ", document.valid=" + (!(myDocument instanceof DocumentWindow) || ((DocumentWindow)myDocument).isValid()));
       }
 
       final int endOffset = marker.getEndOffset();
@@ -151,8 +154,9 @@ public class OffsetMap implements Disposable {
     return myDocument;
   }
 
+  @ApiStatus.Internal
   @NotNull
-  OffsetMap copyOffsets(@NotNull Document anotherDocument) {
+  public OffsetMap copyOffsets(@NotNull Document anotherDocument) {
     assert anotherDocument.getTextLength() == myDocument.getTextLength();
     return mapOffsets(anotherDocument, Function.identity());
   }

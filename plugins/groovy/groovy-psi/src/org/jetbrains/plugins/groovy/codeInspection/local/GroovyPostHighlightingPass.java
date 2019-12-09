@@ -101,7 +101,7 @@ public class GroovyPostHighlightingPass extends TextEditorHighlightingPass {
     final Map<GrParameter, Boolean> usedParams = new HashMap<>();
     myFile.accept(new PsiRecursiveElementWalkingVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         if (element instanceof GrReferenceExpression && !((GrReferenceElement)element).isQualified()) {
           GroovyResolveResult[] results = ((GrReferenceExpression)element).multiResolve(false);
           if (results.length == 0) {
@@ -117,7 +117,7 @@ public class GroovyPostHighlightingPass extends TextEditorHighlightingPass {
 
         if (deadCodeEnabled &&
             element instanceof GrNamedElement && element instanceof PsiModifierListOwner &&
-            !UnusedSymbolUtil.isImplicitUsage(element.getProject(), (PsiModifierListOwner)element, progress) &&
+            !UnusedSymbolUtil.isImplicitUsage(element.getProject(), (PsiModifierListOwner)element) &&
             !GroovySuppressableInspectionTool.isElementToolSuppressedIn(element, GroovyUnusedDeclarationInspection.SHORT_NAME)) {
           PsiElement nameId = ((GrNamedElement)element).getNameIdentifierGroovy();
           if (nameId.getNode().getElementType() == GroovyTokenTypes.mIDENT) {

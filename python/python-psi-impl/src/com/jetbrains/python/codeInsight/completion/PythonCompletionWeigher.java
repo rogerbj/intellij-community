@@ -23,6 +23,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
+import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PythonLanguage;
 import com.jetbrains.python.psi.PyReferenceExpression;
 import org.jetbrains.annotations.NotNull;
@@ -36,7 +37,10 @@ import org.jetbrains.annotations.NotNull;
 public class PythonCompletionWeigher extends CompletionWeigher {
 
   public static final int PRIORITY_WEIGHT = 5;
+  public static final int WEIGHT_FOR_KEYWORDS = 0;
   private static final Logger LOG = Logger.getInstance(PythonCompletionWeigher.class);
+  public static final String COLLECTION_KEY = "dict key";
+  private static final int COLLECTION_KEY_WEIGHT = 10;
 
   @Override
   public Comparable weigh(@NotNull final LookupElement element, @NotNull final CompletionLocation location) {
@@ -47,8 +51,8 @@ public class PythonCompletionWeigher extends CompletionWeigher {
     final String name = element.getLookupString();
     final LookupElementPresentation presentation = LookupElementPresentation.renderElement(element);
     // move dict keys to the top
-    if ("dict key".equals(presentation.getTypeText())) {
-      return element.getLookupString().length();
+    if (COLLECTION_KEY.equals(presentation.getTypeText())) {
+      return COLLECTION_KEY_WEIGHT;
     }
 
     PsiElement psiElement = element.getPsiElement();
@@ -62,6 +66,11 @@ public class PythonCompletionWeigher extends CompletionWeigher {
       LOG.debug("Combined weight for completion item ", name, ": ", completionWeight);
       return completionWeight;
     }
+
+    if (PyNames.isReserved(element.getLookupString())) {
+      return WEIGHT_FOR_KEYWORDS;
+    }
+
     return PyCompletionUtilsKt.FALLBACK_WEIGHT;
   }
 }

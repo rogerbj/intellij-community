@@ -16,6 +16,7 @@
 package com.intellij.java.index;
 
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.util.MathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.DataIndexer;
 import com.intellij.util.indexing.IndexExtension;
@@ -126,11 +127,15 @@ public class StringIndex {
   }
   
   public boolean update(final String path, @Nullable String content, @Nullable String oldContent) {
-    return myIndex.update(Math.abs(path.hashCode()), toInput(path, content)).compute();
+    return myIndex.update(MathUtil.nonNegativeAbs(path.hashCode()), toInput(path, content)).compute();
   }
 
-  public void flush() throws StorageException {
-    myIndex.flush();
+  public long getModificationStamp() {
+    return myIndex.getModificationStamp();
+  }
+
+  public void clear() {
+    myIndex.clear();
   }
 
   public void dispose() {

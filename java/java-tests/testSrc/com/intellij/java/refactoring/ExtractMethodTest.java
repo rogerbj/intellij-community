@@ -1170,6 +1170,15 @@ public class ExtractMethodTest extends LightJavaCodeInsightTestCase {
     doTest();
   }
 
+  public void testEmptyParenthesis() throws Exception {
+    try {
+      doTest();
+      fail("Should not work for empty parenthesis");
+    }
+    catch (PrepareFailedException ignore) {
+    }
+  }
+
   public void testQualifyWhenConflictingNamePresent() throws Exception {
     final CommonCodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
     settings.ELSE_ON_NEW_LINE = true;
@@ -1387,6 +1396,15 @@ public class ExtractMethodTest extends LightJavaCodeInsightTestCase {
     doTest();
   }
 
+  public void testExtractFromAnnotation() throws Exception {
+    try {
+      doTest();
+      fail("Should not work for annotations");
+    }
+    catch (PrepareFailedException ignore) {
+    }
+  }
+
   private void doTestDisabledParam() throws PrepareFailedException {
     final CommonCodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
     settings.ELSE_ON_NEW_LINE = true;
@@ -1435,7 +1453,7 @@ public class ExtractMethodTest extends LightJavaCodeInsightTestCase {
     assertEquals(shouldSucceed, success);
   }
 
-  void doTest() throws Exception {
+  private void doTest() throws Exception {
     final CommonCodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
     settings.ELSE_ON_NEW_LINE = true;
     settings.CATCH_ON_NEW_LINE = myCatchOnNewLine;
@@ -1462,57 +1480,60 @@ public class ExtractMethodTest extends LightJavaCodeInsightTestCase {
     return performExtractMethod(doRefactor, replaceAllDuplicates, getEditor(), getFile(), getProject());
   }
 
-  public static boolean performExtractMethod(boolean doRefactor, boolean replaceAllDuplicates, Editor editor, PsiFile file, Project project)
-    throws PrepareFailedException, IncorrectOperationException {
+  public static boolean performExtractMethod(boolean doRefactor,
+                                             boolean replaceAllDuplicates,
+                                             @NotNull Editor editor,
+                                             @NotNull PsiFile file,
+                                             @NotNull Project project) throws PrepareFailedException, IncorrectOperationException {
     return performExtractMethod(doRefactor, replaceAllDuplicates, editor, file, project, false);
   }
 
-  public static boolean performExtractMethod(boolean doRefactor, boolean replaceAllDuplicates, Editor editor, PsiFile file, Project project,
-                                             final boolean extractChainedConstructor)
-    throws PrepareFailedException, IncorrectOperationException {
+  private static boolean performExtractMethod(boolean doRefactor,
+                                              boolean replaceAllDuplicates,
+                                              @NotNull Editor editor,
+                                              @NotNull PsiFile file,
+                                              @NotNull Project project,
+                                              final boolean extractChainedConstructor) throws PrepareFailedException, IncorrectOperationException {
     return performExtractMethod(doRefactor, replaceAllDuplicates, editor, file, project, extractChainedConstructor,
                                 ArrayUtilRt.EMPTY_INT_ARRAY);
   }
 
-  public static boolean performExtractMethod(boolean doRefactor,
-                                             boolean replaceAllDuplicates,
-                                             Editor editor,
-                                             PsiFile file,
-                                             Project project,
-                                             final boolean extractChainedConstructor,
-                                             int... disabledParams)
-    throws PrepareFailedException, IncorrectOperationException {
+  private static boolean performExtractMethod(boolean doRefactor,
+                                              boolean replaceAllDuplicates,
+                                              @NotNull Editor editor,
+                                              @NotNull PsiFile file,
+                                              @NotNull Project project,
+                                              final boolean extractChainedConstructor,
+                                              @NotNull int... disabledParams) throws PrepareFailedException, IncorrectOperationException {
     return performExtractMethod(doRefactor, replaceAllDuplicates, editor, file, project, extractChainedConstructor, null, false, null, disabledParams);
   }
 
-  public static boolean performExtractMethod(boolean doRefactor,
-                                             boolean replaceAllDuplicates,
-                                             Editor editor,
-                                             PsiFile file,
-                                             Project project,
-                                             final boolean extractChainedConstructor,
-                                             PsiType returnType,
-                                             boolean makeStatic,
-                                             String newNameOfFirstParam,
-                                             int... disabledParams)
-    throws PrepareFailedException, IncorrectOperationException {
+  private static boolean performExtractMethod(boolean doRefactor,
+                                              boolean replaceAllDuplicates,
+                                              @NotNull Editor editor,
+                                              @NotNull PsiFile file,
+                                              @NotNull Project project,
+                                              final boolean extractChainedConstructor,
+                                              PsiType returnType,
+                                              boolean makeStatic,
+                                              String newNameOfFirstParam,
+                                              @NotNull int... disabledParams) throws PrepareFailedException, IncorrectOperationException {
     return performExtractMethod(doRefactor, replaceAllDuplicates, editor, file, project, extractChainedConstructor, returnType, makeStatic,
                                 newNameOfFirstParam, null, null, disabledParams);
   }
 
-  public static boolean performExtractMethod(boolean doRefactor,
-                                             boolean replaceAllDuplicates,
-                                             Editor editor,
-                                             PsiFile file,
-                                             Project project,
-                                             final boolean extractChainedConstructor,
-                                             PsiType returnType,
-                                             boolean makeStatic,
-                                             String newNameOfFirstParam,
-                                             PsiClass targetClass,
-                                             @Nullable @PsiModifier.ModifierConstant String methodVisibility,
-                                             int... disabledParams)
-    throws PrepareFailedException, IncorrectOperationException {
+  private static boolean performExtractMethod(boolean doRefactor,
+                                              boolean replaceAllDuplicates,
+                                              @NotNull Editor editor,
+                                              @NotNull PsiFile file,
+                                              @NotNull Project project,
+                                              final boolean extractChainedConstructor,
+                                              PsiType returnType,
+                                              boolean makeStatic,
+                                              String newNameOfFirstParam,
+                                              PsiClass targetClass,
+                                              @Nullable @PsiModifier.ModifierConstant String methodVisibility,
+                                              @NotNull int... disabledParams) throws PrepareFailedException, IncorrectOperationException {
     int startOffset = editor.getSelectionModel().getSelectionStart();
     int endOffset = editor.getSelectionModel().getSelectionEnd();
 
@@ -1546,10 +1567,8 @@ public class ExtractMethodTest extends LightJavaCodeInsightTestCase {
       processor.testPrepare(returnType, makeStatic);
       if (methodVisibility != null) processor.setMethodVisibility(methodVisibility);
       processor.testNullability();
-      if (disabledParams != null) {
-        for (int param : disabledParams) {
-          processor.doNotPassParameter(param);
-        }
+      for (int param : disabledParams) {
+        processor.doNotPassParameter(param);
       }
       if (newNameOfFirstParam != null) {
         processor.changeParamName(0, newNameOfFirstParam);

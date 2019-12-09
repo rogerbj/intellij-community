@@ -5,11 +5,11 @@ import com.intellij.internal.statistic.beans.MetricEvent;
 import com.intellij.internal.statistic.beans.MetricEventFactoryKt;
 import com.intellij.internal.statistic.beans.UsageDescriptor;
 import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.eventLog.validator.SensitiveDataValidator;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.NonUrgentExecutor;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -22,7 +22,33 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
+ * <p>Use it to create a collector which records project state.</p>
+ *
+ * To implement a new collector:
+ * <ol>
+ *   <li>Inherit the class, implement {@link ProjectUsagesCollector#getMetrics(Project)} and register collector in plugin.xml;</li>
+ *   <li>Specify collectors data scheme and implement custom validation rules if necessary.<br/>
+ *   For more information see {@link SensitiveDataValidator};</li>
+ *   <li>Create an <a href="https://youtrack.jetbrains.com/issues/FUS">issue</a> to add group, its data scheme and description to the whitelist;</li>
+ * </ol>
+ *
+ * To test collector:
+ * <ol>
+ *  <li>
+ *    If group is not whitelisted, add it to local whitelist with "Add Test Group to Local Whitelist" action.<br/>
+ *    {@link com.intellij.internal.statistic.actions.AddTestGroupToLocalWhitelistAction}
+ *  </li>
+ *  <li>
+ *    Open toolwindow with event logs with "Show Statistics Event Log" action.<br/>
+ *    {@link com.intellij.internal.statistic.actions.ShowStatisticsEventLogAction}
+ *  </li>
+ *  <li>
+ *    Record all state collectors with "Record State Collectors to Event Log" action.<br/>
+ *    {@link com.intellij.internal.statistic.actions.RecordStateStatisticsEventLogAction}
+ *  </li>
+ * </ol>
  * @see ApplicationUsagesCollector
+ * @see FUCounterUsageLogger
  */
 public abstract class ProjectUsagesCollector extends FeatureUsagesCollector {
   private static final ExtensionPointName<ProjectUsagesCollector> EP_NAME =
@@ -33,6 +59,12 @@ public abstract class ProjectUsagesCollector extends FeatureUsagesCollector {
     return getExtensions(invoker, EP_NAME);
   }
 
+  /**
+   * Implement this method to calculate metrics.
+   * <br/><br/>
+   * {@link MetricEvent#eventId} should indicate what we measure, e.g. "configured.vcs", "module.jdk".<br/>
+   * {@link MetricEvent#data} should contain the value of the measurement, e.g. {"name":"Git"}, {"version":"1.8", "vendor":"OpenJdk"}
+   */
   @NotNull
   public CancellablePromise<? extends Set<MetricEvent>> getMetrics(@NotNull Project project, @NotNull ProgressIndicator indicator) {
     if (requiresReadAccess()) {

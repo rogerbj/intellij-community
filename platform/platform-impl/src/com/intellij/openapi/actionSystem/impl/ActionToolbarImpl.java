@@ -21,6 +21,8 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.openapi.wm.ToolWindow;
+import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.ui.ColorUtil;
@@ -49,10 +51,12 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickActionProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.actionSystem.impl.ActionToolbarImpl");
+  private static final Logger LOG = Logger.getInstance(ActionToolbarImpl.class);
 
   private static final Set<ActionToolbarImpl> ourToolbars = new LinkedHashSet<>();
   private static final String RIGHT_ALIGN_KEY = "RIGHT_ALIGN";
+
+  private static final String SECONDARY_SHORTCUT = "SecondaryActions.shortcut";
 
   static {
     JBUIScale.addUserScaleChangeListener(__ -> {
@@ -158,7 +162,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     myUpdater = new ToolbarUpdater(KeymapManagerEx.getInstanceEx(), this) {
       @Override
       protected void updateActionsImpl(boolean transparentOnly, boolean forced) {
-        if (!ApplicationManager.getApplication().isDisposedOrDisposeInProgress()) {
+        if (!ApplicationManager.getApplication().isDisposed()) {
           ActionToolbarImpl.this.updateActionsImpl(transparentOnly, forced);
         }
       }
@@ -258,9 +262,9 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     return JBSwingUtilities.runGlobalCGTransform(this, super.getComponentGraphics(graphics));
   }
 
-  @Nullable
-  public String getGroupId() {
-    return myActionManager.getId(myActionGroup);
+  @NotNull
+  public ActionGroup getActionGroup() {
+    return myActionGroup;
   }
 
   @Override
@@ -326,6 +330,12 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
             return mySecondaryButtonPopupStateModifier != null && mySecondaryButtonPopupStateModifier.willModify()
                    ? mySecondaryButtonPopupStateModifier.getModifiedPopupState()
                    : super.getPopState();
+          }
+
+          @Override
+          protected String getShortcutText() {
+            Object shortcut = myPresentation.getClientProperty(SECONDARY_SHORTCUT);
+            return shortcut != null ? shortcut.toString() : super.getShortcutText();
           }
         };
       mySecondaryActionsButton.setNoIconsInPopup(true);
@@ -1140,7 +1150,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
   }
 
   private static void updateWhenFirstShown(@NotNull JComponent targetComponent, @NotNull ToolbarReference ref) {
-    Activatable activatable = new Activatable.Adapter() {
+    Activatable activatable = new Activatable() {
       @Override
       public void showNotify() {
         ActionToolbarImpl toolbar = ref.get();
@@ -1220,6 +1230,13 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     Point location;
     if (myOrientation == SwingConstants.HORIZONTAL) {
       location = getLocationOnScreen();
+
+      ToolWindow toolWindow = DataManager.getInstance().getDataContext(this).getData(PlatformDataKeys.TOOL_WINDOW);
+      if (toolWindow != null && toolWindow.getAnchor() == ToolWindowAnchor.RIGHT) {
+        int rightXOnScreen = location.x + getWidth();
+        int toolbarPreferredWidth = popupToolbar.getPreferredSize().width;
+        location.x = rightXOnScreen - toolbarPreferredWidth;
+      }
     }
     else {
       location = getLocationOnScreen();
@@ -1353,7 +1370,11 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
 
   @Override
   public void setSecondaryActionsTooltip(@NotNull String secondaryActionsTooltip) {
-    mySecondaryActions.getTemplatePresentation().setDescription(secondaryActionsTooltip);
+    mySecondaryActions.getTemplatePresentation().setText(secondaryActionsTooltip);
+  }
+
+  public void setSecondaryActionsShortcut(@NotNull String secondaryActionsShortcut) {
+    mySecondaryActions.getTemplatePresentation().putClientProperty(SECONDARY_SHORTCUT, secondaryActionsShortcut);
   }
 
   @Override

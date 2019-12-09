@@ -3,7 +3,6 @@
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.diff.util.DiffPlaces;
-import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.TreeExpander;
@@ -34,14 +33,13 @@ import com.intellij.openapi.vcs.changes.actions.ShowDiffPreviewAction;
 import com.intellij.openapi.vcs.changes.shelf.ShelveChangesManager;
 import com.intellij.openapi.vcs.changes.ui.*;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.problems.ProblemListener;
 import com.intellij.ui.GuiUtils;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.content.Content;
-import com.intellij.ui.content.ContentManagerAdapter;
-import com.intellij.ui.content.ContentManagerEvent;
-import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Alarm;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
@@ -83,7 +81,7 @@ public class ChangesViewManager implements ChangesViewEx,
                                            PersistentStateComponent<ChangesViewManager.State>,
                                            Disposable {
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.changes.ChangesViewManager");
+  private static final Logger LOG = Logger.getInstance(ChangesViewManager.class);
   private static final String CHANGES_VIEW_PREVIEW_SPLITTER_PROPORTION = "ChangesViewManager.DETAILS_SPLITTER_PROPORTION";
 
   @NotNull private final Project myProject;
@@ -256,7 +254,33 @@ public class ChangesViewManager implements ChangesViewEx,
     return myToolWindowPanel.isAllowExcludeFromCommit();
   }
 
-  private static class ChangesViewToolWindowPanel extends SimpleToolWindowPanel implements Disposable {
+  public void closeEditorPreview() {
+    if (myToolWindowPanel == null) {
+      return;
+    }
+
+    ChangesViewPreview diffPreview = myToolWindowPanel.myDiffPreview;
+    if (diffPreview instanceof EditorTabPreview) {
+      ((EditorTabPreview)diffPreview).closeEditorPreview();
+    }
+  }
+
+  public void openEditorPreview() {
+    if (myToolWindowPanel == null) {
+      return;
+    }
+
+    if (!VcsConfiguration.getInstance(myProject).LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN) {
+      return;
+    }
+
+    ChangesViewPreview diffPreview = myToolWindowPanel.myDiffPreview;
+    if (diffPreview instanceof EditorTabPreview) {
+      ((EditorTabPreview)diffPreview).openEditorPreview(false);
+    }
+  }
+
+  public static class ChangesViewToolWindowPanel extends SimpleToolWindowPanel implements Disposable {
     @NotNull private static final RegistryValue isToolbarHorizontalSetting = Registry.get("vcs.local.changes.toolbar.horizontal");
     @NotNull private static final RegistryValue isCommitSplitHorizontal =
       Registry.get("vcs.non.modal.commit.split.horizontal.if.no.diff.preview");
@@ -269,7 +293,7 @@ public class ChangesViewManager implements ChangesViewEx,
     @NotNull private final ChangesListView myView;
 
     @NotNull private final ChangesViewCommitPanelSplitter myCommitPanelSplitter;
-    @NotNull private final PreviewDiffSplitterComponent myDiffPreviewSplitter;
+    @NotNull private final ChangesViewPreview myDiffPreview;
     @NotNull private final Wrapper myProgressLabel = new Wrapper();
 
     @Nullable private ChangesViewCommitPanel myCommitPanel;
@@ -295,18 +319,11 @@ public class ChangesViewManager implements ChangesViewEx,
       myView = myChangesPanel.getChangesView();
       myView.installPopupHandler((DefaultActionGroup)ActionManager.getInstance().getAction("ChangesViewPopupMenu"));
       myView.getGroupingSupport().setGroupingKeysOrSkip(myChangesViewManager.myState.groupingKeys);
-      myView.addTreeSelectionListener(e -> {
-        boolean fromModelRefresh = myModelUpdateInProgress;
-        triggerUpdatePreview(fromModelRefresh);
-      });
       myView.addGroupingChangeListener(e -> {
         myChangesViewManager.myState.groupingKeys = myView.getGroupingSupport().getGroupingKeys();
         scheduleRefresh();
       });
       ChangesDnDSupport.install(myProject, myView);
-      if (Registry.is("show.diff.as.editor.tab")) {
-        myView.setExpandableItemsEnabled(false);
-      }
 
       myChangesPanel.getToolbarActionGroup().addAll(createChangesToolbarActions(myView.getTreeExpander()));
       myChangesPanel.setToolbarHorizontal(commitWorkflowManager.isNonModal() && isToolbarHorizontalSetting.asBoolean());
@@ -335,14 +352,65 @@ public class ChangesViewManager implements ChangesViewEx,
       };
       contentPanel.addToCenter(myCommitPanelSplitter);
 
-      ChangesViewDiffPreviewProcessor changeProcessor = new ChangesViewDiffPreviewProcessor(myView);
+      boolean isPreviewInEditor = Registry.is("show.diff.preview.as.editor.tab");
+      String place = isPreviewInEditor ? DiffPlaces.DEFAULT : DiffPlaces.CHANGES_VIEW;
+
+      ChangesViewDiffPreviewProcessor changeProcessor = new ChangesViewDiffPreviewProcessor(myView, place);
       Disposer.register(this, changeProcessor);
 
-      myDiffPreviewSplitter = new PreviewDiffSplitterComponent(contentPanel, changeProcessor, CHANGES_VIEW_PREVIEW_SPLITTER_PROPORTION,
-                                                               myVcsConfiguration.LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN);
+      JComponent mainPanel;
+      if (isPreviewInEditor) {
+        myDiffPreview = new EditorTabPreview(changeProcessor,
+          contentPanel, myView){
 
-      BorderLayoutPanel mainPanel = simplePanel(myDiffPreviewSplitter).addToBottom(myProgressLabel);
-      setContent(mainPanel);
+          @Override
+          protected String getCurrentName() {
+            return changeProcessor.getCurrentChangeName();
+          }
+
+          @Override
+          protected boolean skipPreviewUpdate() {
+            if (super.skipPreviewUpdate()) {
+              return true;
+            }
+
+            if (!IdeFocusManager.getInstance(myProject).getFocusOwner().equals(myView)) {
+              return true;
+            }
+
+            return !myVcsConfiguration.LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN || myModelUpdateInProgress;
+          }
+
+          @Override
+          protected boolean hasContent() {
+            return changeProcessor.getCurrentChangeName() != null;
+          }
+
+          @Override
+          protected void doRefresh() {
+            changeProcessor.refresh(false);
+
+            closeEditorPreviewIfEmpty();
+          }
+        };
+        mainPanel = contentPanel;
+
+        myView.setExpandableItemsEnabled(false);
+      }
+      else {
+        PreviewDiffSplitterComponent splitter =
+          new PreviewDiffSplitterComponent(contentPanel, changeProcessor,
+                                           CHANGES_VIEW_PREVIEW_SPLITTER_PROPORTION,
+                                           myVcsConfiguration.LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN);
+        myDiffPreview = new PanelPreview(splitter);
+        mainPanel = splitter;
+
+        myView.addTreeSelectionListener(e -> {
+          boolean fromModelRefresh = myModelUpdateInProgress;
+          invokeLater(() -> myDiffPreview.updatePreview(fromModelRefresh));
+        });
+      }
+      setContent(simplePanel(mainPanel).addToBottom(myProgressLabel));
 
       setCommitSplitOrientation();
       isCommitSplitHorizontal.addListener(new RegistryValueListener.Adapter() {
@@ -358,7 +426,7 @@ public class ChangesViewManager implements ChangesViewEx,
           if (myCommitWorkflowHandler == null) return;
 
           if (value.asBoolean()) {
-            myCommitWorkflowHandler.deactivate();
+            myCommitWorkflowHandler.deactivate(false);
           }
           else {
             myCommitWorkflowHandler.activate();
@@ -381,29 +449,8 @@ public class ChangesViewManager implements ChangesViewEx,
       });
       ChangeListManager.getInstance(myProject).addChangeListListener(new MyChangeListListener(), this);
 
-      if (Registry.is("show.diff.as.editor.tab")) {
-        ChangesViewContentI changesViewContentManager = ChangesViewContentManager.getInstance(project);
-        if (changesViewContentManager instanceof ChangesViewContentManager) {
-          ((ChangesViewContentManager) changesViewContentManager).adviseSelectionChanged(new ContentManagerAdapter(){
-            @Override
-            public void selectionChanged(@NotNull ContentManagerEvent event) {
-              if (event.getContent().getDisplayName().equals("Commit") && event.getOperation() == ContentManagerEvent.ContentOperation.add) {
-                updatePreview(false);
-              }
-            }
-          });
-        }
-      }
-
       scheduleRefresh();
-      updatePreview(false);
-    }
-
-    private void triggerUpdatePreview(boolean fromModelRefresh) {
-      if (Registry.is("show.diff.as.editor.tab"))
-        updatePreview(fromModelRefresh);
-      else
-        invokeLater(() -> updatePreview(fromModelRefresh));
+      myDiffPreview.updatePreview(false);
     }
 
     @Override
@@ -425,16 +472,16 @@ public class ChangesViewManager implements ChangesViewEx,
       if (isNonModal) {
         if (myCommitPanel == null) {
           myChangesPanel.setToolbarHorizontal(isToolbarHorizontalSetting.asBoolean());
-          myCommitPanel = new ChangesViewCommitPanel(myView, this);
+          myCommitPanel = myChangesViewManager.createCommitPanel(myView, this);
           myCommitPanel.setToolbarHorizontal(isToolbarHorizontalSetting.asBoolean());
           myCommitWorkflowHandler = new ChangesViewCommitWorkflowHandler(new ChangesViewCommitWorkflow(myProject), myCommitPanel);
-          if (isToggleCommitUi().asBoolean()) myCommitWorkflowHandler.deactivate();
+          if (isToggleCommitUi().asBoolean()) myCommitWorkflowHandler.deactivate(false);
           Disposer.register(this, myCommitPanel);
 
           myCommitPanelSplitter.setSecondComponent(myCommitPanel);
-          myDiffPreviewSplitter.setAllowExcludeFromCommit(isAllowExcludeFromCommit());
+          myDiffPreview.setAllowExcludeFromCommit(isAllowExcludeFromCommit());
           myCommitWorkflowHandler.addActivityListener(
-            () -> myDiffPreviewSplitter.setAllowExcludeFromCommit(isAllowExcludeFromCommit()),
+            () -> myDiffPreview.setAllowExcludeFromCommit(isAllowExcludeFromCommit()),
             myCommitWorkflowHandler
           );
         }
@@ -443,7 +490,7 @@ public class ChangesViewManager implements ChangesViewEx,
         myChangesPanel.setToolbarHorizontal(false);
         if (myCommitPanel != null) {
 
-          myDiffPreviewSplitter.setAllowExcludeFromCommit(false);
+          myDiffPreview.setAllowExcludeFromCommit(false);
           myCommitPanelSplitter.setSecondComponent(null);
           Disposer.dispose(myCommitPanel);
 
@@ -457,13 +504,9 @@ public class ChangesViewManager implements ChangesViewEx,
       return myCommitWorkflowHandler != null && myCommitWorkflowHandler.isActive();
     }
 
-    private void setDiffPreviewVisible(boolean isDiffPreviewVisible) {
-      myDiffPreviewSplitter.setDetailsOn(isDiffPreviewVisible);
-      setCommitSplitOrientation();
-    }
-
     private void setCommitSplitOrientation() {
-      myCommitPanelSplitter.setOrientation(myDiffPreviewSplitter.isDetailsOn() || !isCommitSplitHorizontal.asBoolean());
+      boolean hasPreviewPanel = myVcsConfiguration.LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN && myDiffPreview instanceof PanelPreview;
+      myCommitPanelSplitter.setOrientation(hasPreviewPanel || !isCommitSplitHorizontal.asBoolean());
     }
 
     @NotNull
@@ -589,13 +632,9 @@ public class ChangesViewManager implements ChangesViewEx,
           finally {
             myModelUpdateInProgress = false;
           }
-          updatePreview(true);
+          myDiffPreview.updatePreview(true);
         });
       }, indicator);
-    }
-
-    private void updatePreview(boolean fromModelRefresh) {
-      myDiffPreviewSplitter.updatePreview(fromModelRefresh);
     }
 
     public void setGrouping(@NotNull String groupingKey) {
@@ -695,10 +734,9 @@ public class ChangesViewManager implements ChangesViewEx,
     private class ToggleDetailsAction extends ShowDiffPreviewAction {
       @Override
       public void setSelected(@NotNull AnActionEvent e, boolean state) {
-        setDiffPreviewVisible(state);
-
-        updatePreview(false);
         myVcsConfiguration.LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN = state;
+        myDiffPreview.setDiffPreviewVisible(state);
+        setCommitSplitOrientation();
       }
 
       @Override
@@ -706,6 +744,35 @@ public class ChangesViewManager implements ChangesViewEx,
         return myVcsConfiguration.LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN;
       }
     }
+
+    private class PanelPreview implements ChangesViewPreview {
+      @NotNull private final PreviewDiffSplitterComponent myPreviewSplitter;
+
+      private PanelPreview(@NotNull PreviewDiffSplitterComponent previewSplitter) {
+        myPreviewSplitter = previewSplitter;
+      }
+
+      @Override
+      public void updatePreview(boolean fromModelRefresh) {
+        myPreviewSplitter.updatePreview(fromModelRefresh);
+      }
+
+      @Override
+      public void setDiffPreviewVisible(boolean isVisible) {
+        myPreviewSplitter.setDetailsOn(isVisible);
+      }
+
+      @Override
+      public void setAllowExcludeFromCommit(boolean value) {
+        myPreviewSplitter.setAllowExcludeFromCommit(value);
+      }
+    }
+
+
+  }
+
+  protected ChangesViewCommitPanel createCommitPanel(@NotNull ChangesListView myView, @NotNull ChangesViewToolWindowPanel changesViewToolWindowPanel) {
+      return new ChangesViewCommitPanel(myView, changesViewToolWindowPanel);
   }
 
   private static class MyContentDnDTarget extends VcsToolwindowDnDTarget {

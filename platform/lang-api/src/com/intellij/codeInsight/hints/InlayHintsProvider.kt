@@ -9,6 +9,7 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.options.UnnamedConfigurable
 import com.intellij.psi.PsiFile
 import com.intellij.util.xmlb.annotations.Property
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import javax.swing.JComponent
 import kotlin.reflect.KMutableProperty0
@@ -43,6 +44,7 @@ object InlayHintsProviderExtension : LanguageExtension<InlayHintsProvider<*>>(EX
  *
  * To test it you may use InlayHintsProviderTestCase.
  */
+@ApiStatus.Experimental
 interface InlayHintsProvider<T : Any> {
   /**
    * If this method is called, provider is enabled for this file
@@ -119,6 +121,7 @@ interface ImmediateConfigurable {
 
   class Case(
     val name: String,
+    val id: String,
     private val loadFromSettings: () -> Boolean,
     private val onUserChanged: (Boolean) -> Unit,
     val extendedDescription: String? = null
@@ -127,8 +130,9 @@ interface ImmediateConfigurable {
       get() = loadFromSettings()
       set(value) = onUserChanged(value)
 
-    constructor(name: String, property: KMutableProperty0<Boolean>, extendedDescription: String? = null) : this(
+    constructor(name: String, id: String, property: KMutableProperty0<Boolean>, extendedDescription: String? = null) : this(
       name,
+      id,
       { property.get() },
       {property.set(it)},
       extendedDescription

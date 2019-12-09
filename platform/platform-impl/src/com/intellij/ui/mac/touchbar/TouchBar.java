@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.mac.touchbar;
 
 import com.intellij.ide.DataManager;
@@ -13,7 +13,6 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.IndexNotReadyException;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.mac.foundation.ID;
@@ -31,7 +30,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
-class TouchBar implements NSTLibrary.ItemCreator {
+final class TouchBar implements NSTLibrary.ItemCreator {
   private static final boolean ourAsyncUpdate = Registry.is("actionSystem.update.touchbar.actions.asynchronously");
   private static final boolean ourUseCached = Registry.is("actionSystem.update.touchbar.actions.use.cached");
   private static final boolean ourCollectStats = Boolean.getBoolean("touchbar.collect.stats");
@@ -44,7 +43,7 @@ class TouchBar implements NSTLibrary.ItemCreator {
   private final TBItemButton myCustomEsc;
   private final ActionGroup myActionGroup;
   private final @Nullable String mySkipSubgroupsPrefix;
-  private final @NotNull UpdateTimerWrapper myUpdateTimer = new UpdateTimerWrapper(500);
+  private final @NotNull Updater myUpdateTimer = new Updater(500);
   private CancellablePromise<List<AnAction>> myLastUpdate;
   private String[] myVisibleIds;
   private long myStartShowNs = 0;
@@ -84,8 +83,9 @@ class TouchBar implements NSTLibrary.ItemCreator {
         // NOTE: called from AppKit thread
         _closeSelf();
       };
-    } else
+    } else {
       myItemListener = null;
+    }
 
     myActionGroup = actionGroup;
     mySkipSubgroupsPrefix = skipSubgroupsPrefix;
@@ -93,7 +93,7 @@ class TouchBar implements NSTLibrary.ItemCreator {
     myItems = new ItemsContainer(touchbarName);
     if (replaceEsc) {
       final Icon ic = IconLoader.getIcon("/mac/touchbar/popoverClose_dark.svg");
-      myCustomEsc = new TBItemButton(myItemListener, null).setIcon(ic).setWidth(64).setTransparentBg(true).setAction(()-> {
+      myCustomEsc = new TBItemButton(myItemListener, null).setIcon(ic).setWidth(64).setTransparentBg(true).setAction(() -> {
         _closeSelf();
         if (emulateESC) {
           try {
@@ -104,44 +104,62 @@ class TouchBar implements NSTLibrary.ItemCreator {
             Robot robot = new Robot();
             robot.keyPress(KeyEvent.VK_ESCAPE);
             robot.keyRelease(KeyEvent.VK_ESCAPE);
-          } catch (AWTException e) {
+          }
+          catch (AWTException e) {
             LOG.error(e);
           }
         }
       }, false, null);
       myCustomEsc.setUid(touchbarName + "_custom_esc_button");
-    } else
+    }
+    else {
       myCustomEsc = null;
+    }
 
     myNativePeer = NST.createTouchBar(touchbarName, this, myCustomEsc != null ? myCustomEsc.getUid() : null);
   }
 
   @NotNull
-  PresentationFactory getFactory() { return myFactory; }
-  void setAllowSkipSlowUpdates(boolean allowSkipSlowUpdates) { myAllowSkipSlowUpdates = allowSkipSlowUpdates; }
+  PresentationFactory getFactory() {
+    return myFactory;
+  }
 
+  void setAllowSkipSlowUpdates(boolean allowSkipSlowUpdates) {
+    myAllowSkipSlowUpdates = allowSkipSlowUpdates;
+  }
 
   @Nullable
-  TouchBarStats getStats() { return myStats; }
+  TouchBarStats getStats() {
+    return myStats;
+  }
 
-  boolean isManualClose() { return myCustomEsc != null; }
-  boolean isEmpty() { return isEmptyActionGroup() && (myItems.isEmpty() || !myItems.anyMatchDeep(item -> item != null && !(item instanceof SpacingItem))); }
+  boolean isManualClose() {
+    return myCustomEsc != null;
+  }
+
+  boolean isEmpty() {
+    return isEmptyActionGroup() && (myItems.isEmpty() || !myItems.anyMatchDeep(item -> item != null && !(item instanceof SpacingItem)));
+  }
 
   @Override
-  public String toString() { return myItems.toString() + "_" + myNativePeer; }
+  public String toString() {
+    return myItems.toString() + "_" + myNativePeer;
+  }
 
   @Override
   public ID createItem(@NotNull String uid) { // called from AppKit (when NSTouchBarDelegate create items)
     final long startNs = myStats != null ? System.nanoTime() : 0;
     final ID result = createItemImpl(uid);
-    if (myStats != null)
+    if (myStats != null) {
       myStats.incrementCounter(StatsCounters.itemsCreationDurationNs, System.nanoTime() - startNs);
+    }
     return result;
   }
 
   private ID createItemImpl(@NotNull String uid) {
-    if (myCustomEsc != null && myCustomEsc.getUid().equals(uid))
+    if (myCustomEsc != null && myCustomEsc.getUid().equals(uid)) {
       return myCustomEsc.getNativePeer();
+    }
 
     TBItem item = myItems.findItem(uid);
     if (item == null) {
@@ -152,8 +170,14 @@ class TouchBar implements NSTLibrary.ItemCreator {
     return item.getNativePeer();
   }
 
-  ID getNativePeer() { return myNativePeer; }
-  @NotNull ItemsContainer getItemsContainer() { return myItems; }
+  ID getNativePeer() {
+    return myNativePeer;
+  }
+
+  @NotNull
+  ItemsContainer getItemsContainer() {
+    return myItems;
+  }
 
   void release() {
     synchronized (myHideReleaseLock) {
@@ -169,33 +193,45 @@ class TouchBar implements NSTLibrary.ItemCreator {
       myActionButtonPool.clear();
       myGroupPool.forEach(item -> item.releaseNativePeer());
       myGroupPool.clear();
-      if (myStats != null)
+      if (myStats != null) {
         myStats.incrementCounter(StatsCounters.touchbarReleaseDurationNs, System.nanoTime() - startNs);
+      }
     }
   }
 
-  void softClear() { myItems.softClear(myActionButtonPool, myGroupPool); }
+  void softClear() {
+    myItems.softClear(myActionButtonPool, myGroupPool);
+  }
 
   //
   // NOTE: must call 'selectVisibleItemsToShow' after touchbar filling
   //
-  @NotNull TBItemButton addButton() {
+  @NotNull
+  TBItemButton addButton() {
     @NotNull TBItemButton butt = new TBItemButton(myItemListener, myStats != null ? myStats.getActionStats("simple_button") : null);
     myItems.addItem(butt);
     return butt;
   }
-  @NotNull TBItemAnActionButton addAnActionButton(@NotNull AnAction act) { return addAnActionButton(act, null); }
-  @NotNull TBItemAnActionButton addAnActionButton(@NotNull AnAction act, @Nullable TBItem positionAnchor) {
+
+  @NotNull
+  TBItemAnActionButton addAnActionButton(@NotNull AnAction act) { return addAnActionButton(act, null); }
+
+  @NotNull
+  TBItemAnActionButton addAnActionButton(@NotNull AnAction act, @Nullable TBItem positionAnchor) {
     @NotNull TBItemAnActionButton butt = createActionButton(act);
     myItems.addItem(butt, positionAnchor);
     return butt;
   }
-  @NotNull TBItemGroup addGroup() {
+
+  @NotNull
+  TBItemGroup addGroup() {
     @NotNull TBItemGroup group = createGroup();
     myItems.addItem(group);
     return group;
   }
-  @NotNull TBItemScrubber addScrubber() {
+
+  @NotNull
+  TBItemScrubber addScrubber() {
     final int defaultScrubberWidth = 500;
     @NotNull TBItemScrubber scrub = new TBItemScrubber(myItemListener, myStats, defaultScrubberWidth);
     myItems.addItem(scrub);
@@ -252,20 +288,24 @@ class TouchBar implements NSTLibrary.ItemCreator {
 
   void selectVisibleItemsToShow() {
     if (myItems.isEmpty()) {
-      if (myVisibleIds != null && myVisibleIds.length > 0)
+      if (myVisibleIds != null && myVisibleIds.length > 0) {
         NST.selectItemsToShow(myNativePeer, null, 0);
+      }
       myVisibleIds = null;
       return;
     }
 
     final String[] ids = myItems.getVisibleIds();
-    if (Arrays.equals(ids, myVisibleIds))
+    if (Arrays.equals(ids, myVisibleIds)) {
       return;
+    }
     myVisibleIds = ids;
     NST.selectItemsToShow(myNativePeer, ids, ids == null ? 0 : ids.length);
   }
 
-  void setPrincipal(@NotNull TBItem item) { NST.setPrincipal(myNativePeer, item.getUid()); }
+  void setPrincipal(@NotNull TBItem item) {
+    NST.setPrincipal(myNativePeer, item.getUid());
+  }
 
   void onBeforeShow() {
     myStartShowNs = System.nanoTime();
@@ -314,12 +354,8 @@ class TouchBar implements NSTLibrary.ItemCreator {
         toUpdate.forEach(item -> item.updateNativePeer());
       }
     };
-    final Application app = ApplicationManager.getApplication();
-    if (app != null) {
-      myLastUpdateNativePeers = app.executeOnPooledThread(() -> app.runReadAction(updateAllNativePeers));
-    } else {
-      updateAllNativePeers.run();
-    }
+    final @NotNull Application app = ApplicationManager.getApplication();
+    myLastUpdateNativePeers = app.executeOnPooledThread(() -> app.runReadAction(updateAllNativePeers));
 
     selectVisibleItemsToShow();
     if (myStats != null)
@@ -355,8 +391,6 @@ class TouchBar implements NSTLibrary.ItemCreator {
     }
 
     if (myActionGroup != null) {
-      softClear();
-
       DataContext dctx = DataManager.getInstance().getDataContext(BuildUtils.getCurrentFocusComponent());
       BuildUtils.GroupVisitor visitor = new BuildUtils.GroupVisitor(this, mySkipSubgroupsPrefix, null, myStats, myAllowSkipSlowUpdates);
       if (ourAsyncUpdate) {
@@ -365,7 +399,12 @@ class TouchBar implements NSTLibrary.ItemCreator {
         myLastUpdate = Utils.expandActionGroupAsync(LaterInvocator.isInModalContext(), myActionGroup, myFactory, dctx, ActionPlaces.TOUCHBAR_GENERAL, visitor);
         myLastUpdate.onSuccess(actions -> _applyPresentationChanges(actions)).onProcessed(__ -> myLastUpdate = null);
       } else {
-        List<AnAction> actions = Utils.expandActionGroupWithTimeout(LaterInvocator.isInModalContext(), myActionGroup, myFactory, dctx, ActionPlaces.TOUCHBAR_GENERAL, visitor);
+        List<AnAction> actions = Utils.expandActionGroupWithTimeout(
+          LaterInvocator.isInModalContext(),
+          myActionGroup,
+          myFactory, dctx,
+          ActionPlaces.TOUCHBAR_GENERAL,
+          visitor, Registry.intValue("actionSystem.update.touchbar.timeout.ms"));
         _applyPresentationChanges(actions);
       }
     } else {
@@ -378,12 +417,6 @@ class TouchBar implements NSTLibrary.ItemCreator {
         final @NotNull Presentation presentation = myFactory.getPresentation(item.getAnAction());
 
         final Component component = item.getComponent();
-        if (ApplicationManager.getApplication() == null) {
-          if (component instanceof JButton) {
-            presentation.setEnabled(component.isEnabled());
-            presentation.setText(DialogWrapper.extractMnemonic(((JButton)component).getText()).second);
-          }
-        }
 
         final DataContext dctx = DataManager.getInstance().getDataContext(component);
         final ActionManager am = ActionManagerEx.getInstanceEx();
@@ -422,48 +455,43 @@ class TouchBar implements NSTLibrary.ItemCreator {
     TouchBarsManager.hideContainer(myBarContainer);
   }
 
-  private class UpdateTimerWrapper {
-    final int myDelay;
-    Object myTimerImpl;
+  private final class Updater {
+    private final int myDelay;
+    private @Nullable TimerListener myTimerImpl;
 
-    UpdateTimerWrapper(int delay) { myDelay = delay; }
+    Updater(int delay) { myDelay = delay; }
 
     void start() {
-      if (myTimerImpl != null)
+      if (myTimerImpl != null) {
         stop();
-
-      if (ApplicationManager.getApplication() == null) {
-        final Timer t = new Timer(myDelay, (event) -> updateActionItems());
-        myTimerImpl = t;
-
-        t.setRepeats(true);
-        t.start();
-        return;
       }
 
-      final TimerListener t = new TimerListener() {
+      myTimerImpl = new TimerListener() {
         @Override
-        public ModalityState getModalityState() { return ModalityState.current(); }
+        public ModalityState getModalityState() {
+          return ModalityState.current();
+        }
+
         @Override
-        public void run() { updateActionItems(); }
+        public void run() {
+          updateActionItems();
+        }
       };
-      myTimerImpl = t;
-      ActionManager.getInstance().addTransparentTimerListener(myDelay/*delay param doesn't affect anything*/, t);
+      ActionManager.getInstance().addTransparentTimerListener(myDelay/*delay param doesn't affect anything*/, myTimerImpl);
     }
 
     void stop() {
-      if (myTimerImpl == null)
+      if (myTimerImpl == null) {
         return;
+      }
 
-      if (myTimerImpl instanceof Timer)
-        ((Timer)myTimerImpl).stop();
-      else if (myTimerImpl instanceof TimerListener)
-        ActionManager.getInstance().removeTransparentTimerListener((TimerListener)myTimerImpl);
-
+      ActionManager.getInstance().removeTransparentTimerListener(myTimerImpl);
       myTimerImpl = null;
     }
 
-    boolean isRunning() { return myTimerImpl != null; }
+    boolean isRunning() {
+      return myTimerImpl != null;
+    }
   }
 
   @NotNull TBItemAnActionButton createActionButton(@NotNull AnAction act) {

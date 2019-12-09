@@ -116,8 +116,8 @@ internal class GithubPullRequestsList(private val copyPasteManager: CopyPasteMan
                                               index: Int,
                                               isSelected: Boolean,
                                               cellHasFocus: Boolean): Component {
-      UIUtil.setBackgroundRecursively(this, ListUiUtil.WithTallRow.background(list, isSelected))
-      val primaryTextColor = ListUiUtil.WithTallRow.foreground(list, isSelected)
+      UIUtil.setBackgroundRecursively(this, ListUiUtil.WithTallRow.background(list, isSelected, list.hasFocus()))
+      val primaryTextColor = ListUiUtil.WithTallRow.foreground(isSelected, list.hasFocus())
       val secondaryTextColor = ListUiUtil.WithTallRow.secondaryForeground(list, isSelected)
 
       stateIcon.apply {
@@ -126,6 +126,7 @@ internal class GithubPullRequestsList(private val copyPasteManager: CopyPasteMan
           GHPullRequestState.MERGED -> GithubIcons.PullRequestMerged
           GHPullRequestState.OPEN -> GithubIcons.PullRequestOpen
         }
+        toolTipText = value.state.toString().toLowerCase().capitalize()
       }
       title.apply {
         text = value.title

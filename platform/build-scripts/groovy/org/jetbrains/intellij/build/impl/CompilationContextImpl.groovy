@@ -8,6 +8,7 @@ import com.intellij.util.SystemProperties
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import org.jetbrains.intellij.build.*
+import org.jetbrains.intellij.build.impl.compilation.CompilationPartsUtil
 import org.jetbrains.intellij.build.impl.logging.BuildMessagesImpl
 import org.jetbrains.jps.gant.JpsGantProjectBuilder
 import org.jetbrains.jps.model.JpsElementFactory
@@ -98,6 +99,7 @@ class CompilationContextImpl implements CompilationContext {
     def jbrEnvVar = "JDK_${options.jbrVersion < 9 ? "1$options.jbrVersion" : options.jbrVersion}_x64"
     def jbrHome = toCanonicalPath(JdkUtils.computeJdkHome(messages, jbrVersionName, jbrDefaultDir, jbrEnvVar))
     JdkUtils.defineJdk(model.global, jbrVersionName, jbrHome, messages)
+    readModulesFromReleaseFile(model, jbrVersionName, jbrHome)
     model.project.modules
       .collect { it.getSdkReference(JpsJavaSdkType.INSTANCE)?.sdkName }
       .findAll { it != null && !sdks.contains(it) }
@@ -107,19 +109,23 @@ class CompilationContextImpl implements CompilationContext {
       }
       if (sdkHome != null) {
         JdkUtils.defineJdk(model.global, sdkName, sdkHome, messages)
-        def additionalSdk = model.global.libraryCollection.findLibrary(sdkName)
-        def urls = additionalSdk.getRoots(JpsOrderRootType.COMPILED).collect { it.url }
-        JdkUtils.readModulesFromReleaseFile(new File(sdkHome)).each {
-          if (!urls.contains(it)) {
-            additionalSdk.addRoot(it, JpsOrderRootType.COMPILED)
-          }
-        }
+        readModulesFromReleaseFile(model, sdkName, sdkHome)
       }
       else {
         messages.warning("JDK $sdkName is required to compile the project but it's not found")
       }
     }
     return jbrHome
+  }
+
+  private static def readModulesFromReleaseFile(JpsModel model, String sdkName, String sdkHome) {
+    def additionalSdk = model.global.libraryCollection.findLibrary(sdkName)
+    def urls = additionalSdk.getRoots(JpsOrderRootType.COMPILED).collect { it.url }
+    JdkUtils.readModulesFromReleaseFile(new File(sdkHome)).each {
+      if (!urls.contains(it)) {
+        additionalSdk.addRoot(it, JpsOrderRootType.COMPILED)
+      }
+    }
   }
 
   private static String jbrDir(String projectHome, BuildOptions options) {
@@ -405,6 +411,9 @@ class CompilationContextImpl implements CompilationContext {
   private static final AtomicLong totalSizeOfProducedArtifacts = new AtomicLong()
   @Override
   void notifyArtifactBuilt(String artifactPath) {
+    if (options.buildStepsToSkip.contains(BuildOptions.TEAMCITY_ARTIFACTS_PUBLICATION)) {
+      return
+    }
     def file = new File(artifactPath)
     def artifactsDir = new File(paths.artifacts)
 

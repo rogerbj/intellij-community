@@ -6,6 +6,7 @@ import com.intellij.openapi.MnemonicHelper
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.ComponentContainer
 import com.intellij.openapi.ui.Messages
@@ -25,8 +26,8 @@ import com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode.UNVERSIONED_FILES_
 import com.intellij.openapi.vcs.changes.ui.VcsTreeModelData.*
 import com.intellij.openapi.vcs.checkin.CheckinHandler
 import com.intellij.openapi.vcs.ui.CommitMessage
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.IdeBorderFactory.createBorder
 import com.intellij.ui.JBColor
@@ -36,6 +37,7 @@ import com.intellij.ui.components.JBOptionButton
 import com.intellij.ui.components.JBOptionButton.Companion.getDefaultShowPopupShortcut
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.panels.HorizontalLayout
+import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.util.EventDispatcher
 import com.intellij.util.IJSwingUtilities.updateComponentTreeUI
 import com.intellij.util.ui.JBUI.Borders.empty
@@ -45,6 +47,7 @@ import com.intellij.util.ui.JBUI.scale
 import com.intellij.util.ui.UIUtil.getTreeBackground
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.tree.TreeUtil.*
+import com.intellij.vcs.log.VcsUser
 import java.awt.Point
 import java.awt.event.ActionEvent
 import java.awt.event.InputEvent
@@ -52,14 +55,19 @@ import java.awt.event.KeyEvent
 import javax.swing.*
 import javax.swing.KeyStroke.getKeyStroke
 import javax.swing.border.Border
+import javax.swing.border.EmptyBorder
 import kotlin.properties.Delegates.observable
 
 private val DEFAULT_COMMIT_ACTION_SHORTCUT = CustomShortcutSet(getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK))
-private val BACKGROUND_COLOR = JBColor { getTreeBackground() }
 
 private val isCompactCommitLegend = Registry.get("vcs.non.modal.commit.legend.compact")
 
 private fun createHorizontalPanel(): JBPanel<*> = JBPanel<JBPanel<*>>(HorizontalLayout(scale(16), SwingConstants.CENTER))
+
+private fun JBOptionButton.getBottomInset(): Int =
+  border?.getBorderInsets(this)?.bottom
+  ?: (components.firstOrNull() as? JComponent)?.insets?.bottom
+  ?: 0
 
 private fun JBPopup.showAbove(component: JComponent) {
   val northWest = RelativePoint(component, Point())
@@ -77,7 +85,7 @@ private fun JBPopup.showAbove(component: JComponent) {
 
 internal fun ChangesBrowserNode<*>.subtreeRootObject(): Any? = (path.getOrNull(1) as? ChangesBrowserNode<*>)?.userObject
 
-class ChangesViewCommitPanel(private val changesView: ChangesListView, private val rootComponent: JComponent) :
+open class ChangesViewCommitPanel(private val changesView: ChangesListView, private val rootComponent: JComponent) :
   BorderLayoutPanel(), ChangesViewCommitWorkflowUi, EditorColorsListener, ComponentContainer, DataProvider {
 
   private val project get() = changesView.project
@@ -88,6 +96,7 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
   private val inclusionEventDispatcher = EventDispatcher.create(InclusionListener::class.java)
 
   private val centerPanel = simplePanel()
+  private val buttonPanel = simplePanel()
   private val toolbarPanel = simplePanel().apply { isOpaque = false }
   private var verticalToolbarBorder: Border? = null
   private val actions = ActionManager.getInstance().getAction("ChangesView.CommitToolbar") as ActionGroup
@@ -104,10 +113,11 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
       setTargetComponent(this@ChangesViewCommitPanel)
       setReservePlaceAutoPopupIcon(false)
       component.isOpaque = false
+      component.border = null
     }
 
   private val commitMessage = CommitMessage(project, false, false, true).apply {
-    editorField.addSettingsProvider { it.setBorder(emptyLeft(3)) }
+    editorField.addSettingsProvider { it.setBorder(emptyLeft(6)) }
     editorField.setPlaceholder("Commit Message")
   }
   private val defaultCommitAction = object : AbstractAction() {
@@ -115,17 +125,20 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
   }
   private val commitButton = object : JBOptionButton(defaultCommitAction, emptyArray()) {
     init {
-      background = BACKGROUND_COLOR
+      background = getButtonPanelBackground()
       optionTooltipText = getDefaultTooltip()
       isOkToProcessDefaultMnemonics = false
     }
 
     override fun isDefaultButton(): Boolean = IdeFocusManager.getInstance(project).getFocusedDescendantFor(rootComponent) != null
   }
+  private val commitAuthorComponent = CommitAuthorComponent()
   private val commitLegendCalculator = ChangeInfoCalculator()
   private val commitLegend = CommitLegendPanel(commitLegendCalculator)
 
   private var needUpdateCommitOptionsUi = false
+
+  private var isHideToolWindowOnDeactivate = false
 
   var isToolbarHorizontal: Boolean by observable(false) { _, oldValue, newValue ->
     if (oldValue != newValue) {
@@ -144,6 +157,9 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
     }, this)
 
     buildLayout()
+    for (support in EditChangelistSupport.EP_NAME.getExtensions(project)) {
+      support.installSearch(commitMessage.editorField, commitMessage.editorField)
+    }
 
     with(changesView) {
       setInclusionListener { inclusionEventDispatcher.multicaster.inclusionChanged() }
@@ -158,15 +174,19 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
   }
 
   private fun buildLayout() {
-    val buttonPanel = simplePanel().apply {
-      background = BACKGROUND_COLOR
+    buttonPanel.apply {
+      background = getButtonPanelBackground()
+      border = getButtonPanelBorder()
 
       addToLeft(commitActionToolbar.component)
       addToCenter(
         createHorizontalPanel().apply {
-          background = BACKGROUND_COLOR
+          background = getButtonPanelBackground()
 
-          add(commitButton)
+          add(NonOpaquePanel(HorizontalLayout(scale(4))).apply {
+            add(commitButton)
+            add(commitAuthorComponent)
+          })
           add(CurrentBranchComponent(project, changesView, this@ChangesViewCommitPanel))
           add(commitLegend.component)
           add(toolbarPanel)
@@ -186,7 +206,7 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
       toolbar.setOrientation(SwingConstants.HORIZONTAL)
       toolbar.setReservePlaceAutoPopupIcon(false)
       verticalToolbarBorder = toolbar.component.border
-      toolbar.component.border = empty()
+      toolbar.component.border = null
 
       centerPanel.border = null
       toolbarPanel.addToCenter(toolbar.component)
@@ -200,6 +220,12 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
       addToLeft(toolbar.component)
     }
   }
+
+  private fun getButtonPanelBorder(): Border =
+    EmptyBorder(0, scale(4), (scale(6) - commitButton.getBottomInset()).coerceAtLeast(0), 0)
+
+  private fun getButtonPanelBackground() =
+    JBColor { (commitMessage.editorField.editor as? EditorEx)?.backgroundColor ?: getTreeBackground() }
 
   private fun inclusionChanged() {
     updateLegend()
@@ -221,6 +247,7 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
 
   override fun globalSchemeChange(scheme: EditorColorsScheme?) {
     needUpdateCommitOptionsUi = true
+    buttonPanel.border = getButtonPanelBorder()
   }
 
   override val commitMessageUi: CommitMessageUi get() = commitMessage
@@ -239,35 +266,72 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
 
   override fun setCustomCommitActions(actions: List<AnAction>) = commitButton.setOptions(actions)
 
+  override var commitAuthor: VcsUser?
+    get() = commitAuthorComponent.commitAuthor
+    set(value) {
+      commitAuthorComponent.commitAuthor = value
+    }
+
   override val isActive: Boolean get() = isVisible
 
   override fun activate(): Boolean {
-    val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ChangesViewContentManager.TOOLWINDOW_ID) ?: return false
+    val toolWindow = getVcsToolWindow() ?: return false
     val contentManager = ChangesViewContentManager.getInstance(project)
 
+    saveToolWindowState()
     changesView.isShowCheckboxes = true
     isVisible = true
 
-    contentManager.selectContent(ChangesViewContentManager.LOCAL_CHANGES)
+    selectContent(contentManager)
     toolWindow.activate({ commitMessage.requestFocusInMessage() }, false)
     return true
   }
 
-  override fun deactivate() {
+  protected open fun selectContent(contentManager: ChangesViewContentI) {
+    contentManager.selectContent(ChangesViewContentManager.LOCAL_CHANGES)
+  }
+
+  override fun deactivate(isRestoreState: Boolean) {
+    if (isRestoreState) restoreToolWindowState()
+    clearToolWindowState()
     changesView.isShowCheckboxes = false
     isVisible = false
   }
 
+  private fun saveToolWindowState() {
+    if (!isActive) {
+      isHideToolWindowOnDeactivate = getVcsToolWindow()?.isVisible != true
+    }
+  }
+
+  private fun restoreToolWindowState() {
+    if (isHideToolWindowOnDeactivate) {
+      getVcsToolWindow()?.hide(null)
+    }
+  }
+
+  private fun clearToolWindowState() {
+    isHideToolWindowOnDeactivate = false
+  }
+
+  protected open fun getVcsToolWindow(): ToolWindow? =
+    ToolWindowManager.getInstance(project).getToolWindow(ChangesViewContentManager.TOOLWINDOW_ID)
+
+  override fun expand(item: Any) {
+    val node = changesView.findNodeInTree(item)
+    node?.let { changesView.expandSafe(it) }
+  }
+
   override fun select(item: Any) {
-    val pathToSelect = changesView.findNodePathInTree(item)
-    pathToSelect?.let { selectPath(changesView, it, false) }
+    val path = changesView.findNodePathInTree(item)
+    path?.let { selectPath(changesView, it, false) }
   }
 
   override fun selectFirst(items: Collection<Any>) {
     if (items.isEmpty()) return
 
-    val pathToSelect = treePathTraverser(changesView).preOrderDfsTraversal().find { getLastUserObject(it) in items }
-    pathToSelect?.let { selectPath(changesView, it, false) }
+    val path = treePathTraverser(changesView).preOrderDfsTraversal().find { getLastUserObject(it) in items }
+    path?.let { selectPath(changesView, it, false) }
   }
 
   override fun showCommitOptions(options: CommitOptions, actionName: String, isFromToolbar: Boolean, dataContext: DataContext) {
@@ -323,11 +387,11 @@ class ChangesViewCommitPanel(private val changesView: ChangesListView, private v
   override fun getDisplayedChanges(): List<Change> = all(changesView).userObjects(Change::class.java)
   override fun getIncludedChanges(): List<Change> = included(changesView).userObjects(Change::class.java)
 
-  override fun getDisplayedUnversionedFiles(): List<VirtualFile> =
-    allUnderTag(changesView, UNVERSIONED_FILES_TAG).userObjects(FilePath::class.java).mapNotNull { it.virtualFile }
+  override fun getDisplayedUnversionedFiles(): List<FilePath> =
+    allUnderTag(changesView, UNVERSIONED_FILES_TAG).userObjects(FilePath::class.java)
 
-  override fun getIncludedUnversionedFiles(): List<VirtualFile> =
-    includedUnderTag(changesView, UNVERSIONED_FILES_TAG).userObjects(FilePath::class.java).mapNotNull { it.virtualFile }
+  override fun getIncludedUnversionedFiles(): List<FilePath> =
+    includedUnderTag(changesView, UNVERSIONED_FILES_TAG).userObjects(FilePath::class.java)
 
   override var inclusionModel: InclusionModel?
     get() = changesView.inclusionModel

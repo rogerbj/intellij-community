@@ -27,6 +27,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,7 +38,6 @@ import javax.swing.text.html.HTMLDocument;
 import javax.swing.text.html.HTMLFrameHyperlinkEvent;
 import java.io.IOException;
 import java.net.URL;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,26 +49,11 @@ import static com.intellij.openapi.util.text.StringUtil.isEmptyOrSpaces;
  * @author Konstantin Bulenkov
  */
 public abstract class PluginManagerMain {
-
   public static final Logger LOG = Logger.getInstance(PluginManagerMain.class);
 
   private static final String TEXT_SUFFIX = "</body></html>";
   private static final String HTML_PREFIX = "<a href=\"";
   private static final String HTML_SUFFIX = "</a>";
-
-  public static boolean isDevelopedByJetBrains(@NotNull IdeaPluginDescriptor plugin) {
-    return isDevelopedByJetBrains(plugin.getVendor());
-  }
-
-  public static boolean isDevelopedByJetBrains(@Nullable String vendorString) {
-    if (vendorString == null) return false;
-    for (String vendor : StringUtil.split(vendorString, ",")) {
-      if (PluginManagerCore.VENDOR_JETBRAINS.equals(vendor.trim())) {
-        return true;
-      }
-    }
-    return false;
-  }
 
   private static String getTextPrefix() {
     int fontSize = JBUIScale.scale(12);
@@ -88,9 +73,10 @@ public abstract class PluginManagerMain {
   /**
    * @deprecated use {@link #downloadPlugins(List, List, Runnable, PluginEnabler, Runnable)} instead
    */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.2")
   @Deprecated
   public static boolean downloadPlugins(List<PluginNode> plugins,
-                                        List<? extends PluginId> allPlugins,
+                                        List<PluginId> allPlugins,
                                         Runnable onSuccess,
                                         @Nullable Runnable cleanup) throws IOException {
     return downloadPlugins(plugins,
@@ -105,14 +91,22 @@ public abstract class PluginManagerMain {
                                         Runnable onSuccess,
                                         PluginEnabler pluginEnabler,
                                         @Nullable Runnable cleanup) throws IOException {
+    return downloadPlugins(plugins, allPlugins, false, onSuccess, pluginEnabler, cleanup);
+  }
+
+  public static boolean downloadPlugins(List<PluginNode> plugins,
+                                        List<? extends IdeaPluginDescriptor> allPlugins,
+                                        boolean allowInstallWithoutRestart,
+                                        Runnable onSuccess,
+                                        PluginEnabler pluginEnabler,
+                                        @Nullable Runnable cleanup) throws IOException {
     boolean[] result = new boolean[1];
     try {
       ProgressManager.getInstance().run(new Task.Backgroundable(null, IdeBundle.message("progress.download.plugins"), true, PluginManagerUISettings.getInstance()) {
         @Override
         public void run(@NotNull ProgressIndicator indicator) {
           try {
-            if (PluginInstaller.prepareToInstall(plugins, allPlugins, pluginEnabler, indicator)) {
-              ApplicationManager.getApplication().invokeLater(onSuccess);
+            if (PluginInstaller.prepareToInstall(plugins, allPlugins, allowInstallWithoutRestart, pluginEnabler, onSuccess, indicator)) {
               result[0] = true;
             }
           }
@@ -247,8 +241,7 @@ public abstract class PluginManagerMain {
     return descriptionSet.isEmpty();
   }
 
-  public static boolean suggestToEnableInstalledDependantPlugins(PluginEnabler pluginEnabler,
-                                                                 List<? extends PluginNode> list) {
+  public static boolean suggestToEnableInstalledDependantPlugins(PluginEnabler pluginEnabler, List<PluginNode> list) {
     Set<IdeaPluginDescriptor> disabled = new HashSet<>();
     Set<IdeaPluginDescriptor> disabledDependants = new HashSet<>();
     for (PluginNode node : list) {
@@ -258,7 +251,7 @@ public abstract class PluginManagerMain {
       }
       List<PluginId> depends = node.getDepends();
       if (depends != null) {
-        Set<PluginId> optionalDeps = new HashSet<>(Arrays.asList(node.getOptionalDependentPluginIds()));
+        Set<PluginId> optionalDeps = ContainerUtil.set(node.getOptionalDependentPluginIds());
         for (PluginId dependantId : depends) {
           if (optionalDeps.contains(dependantId)) continue;
           IdeaPluginDescriptor pluginDescriptor = PluginManagerCore.getPlugin(dependantId);
@@ -328,29 +321,23 @@ public abstract class PluginManagerMain {
     void enablePlugins(Set<? extends IdeaPluginDescriptor> disabled);
     void disablePlugins(Set<? extends IdeaPluginDescriptor> disabled);
 
-    boolean isDisabled(PluginId pluginId);
+    boolean isDisabled(@NotNull PluginId pluginId);
 
     class HEADLESS implements PluginEnabler {
       @Override
       public void enablePlugins(Set<? extends IdeaPluginDescriptor> disabled) {
-        for (IdeaPluginDescriptor descriptor : disabled) {
-          PluginManagerCore.enablePlugin(descriptor.getPluginId().getIdString());
-        }
+        PluginManager.getInstance().enablePlugins(disabled, true);
       }
 
       @Override
       public void disablePlugins(Set<? extends IdeaPluginDescriptor> disabled) {
         for (IdeaPluginDescriptor descriptor : disabled) {
-          PluginManagerCore.disablePlugin(descriptor.getPluginId().getIdString());
+          PluginManagerCore.disablePlugin(descriptor.getPluginId());
         }
       }
 
       @Override
-      public boolean isDisabled(PluginId pluginId) {
-        return isDisabled(pluginId.getIdString());
-      }
-
-      public boolean isDisabled(@NotNull String pluginId) {
+      public boolean isDisabled(@NotNull PluginId pluginId) {
         return PluginManagerCore.isDisabled(pluginId);
       }
     }
@@ -358,11 +345,10 @@ public abstract class PluginManagerMain {
 
   public static void notifyPluginsUpdated(@Nullable Project project) {
     ApplicationEx app = ApplicationManagerEx.getApplicationEx();
-    String title = IdeBundle.message("update.notifications.title");
-    String action = IdeBundle.message(app.isRestartCapable() ? "ide.restart.action" : "ide.shutdown.action");
-    String message = IdeBundle.message("ide.restart.required.notification", action, ApplicationNamesInfo.getInstance().getFullProductName());
-    Notification notification =
-      UpdateChecker.NOTIFICATIONS.createNotification(title, XmlStringUtil.wrapInHtml(message), NotificationType.INFORMATION, null);
+    String title = IdeBundle.message("updates.plugins.ready.title", ApplicationNamesInfo.getInstance().getFullProductName());
+    String action = IdeBundle.message("ide.restart.required.notification",
+                                      IdeBundle.message(app.isRestartCapable() ? "ide.restart.action" : "ide.shutdown.action"));
+    Notification notification = UpdateChecker.NOTIFICATIONS.createNotification(title, "", NotificationType.INFORMATION, null);
     notification.addAction(new NotificationAction(action) {
       @Override
       public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
@@ -381,7 +367,7 @@ public abstract class PluginManagerMain {
     }
 
     for (IdeaPluginDescriptor descriptor : descriptors) {
-      if (!isDevelopedByJetBrains(descriptor)) {
+      if (!PluginManager.isDevelopedByJetBrains(descriptor)) {
         String title = IdeBundle.message("third.party.plugins.privacy.note.title");
         String message = IdeBundle.message("third.party.plugins.privacy.note.message");
         String yesText = IdeBundle.message("third.party.plugins.privacy.note.yes");

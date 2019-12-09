@@ -34,17 +34,19 @@ import java.util.List;
  */
 public class ProjectAndLibrariesScope extends GlobalSearchScope {
   protected final ProjectFileIndex myProjectFileIndex;
-  protected final boolean mySearchOutsideRootModel;
-  private String myDisplayName = PsiBundle.message("psi.search.scope.project.and.libraries");
+  private String myDisplayName;
 
-  public ProjectAndLibrariesScope(Project project) {
-    this(project, false);
-  }
-
-  public ProjectAndLibrariesScope(Project project, boolean searchOutsideRootModel) {
+  public ProjectAndLibrariesScope(@NotNull Project project) {
     super(project);
     myProjectFileIndex = ProjectRootManager.getInstance(project).getFileIndex();
-    mySearchOutsideRootModel = searchOutsideRootModel;
+  }
+
+  /**
+   * @deprecated use {@link #ProjectAndLibrariesScope(Project)}
+   */
+  @Deprecated
+  public ProjectAndLibrariesScope(Project project, boolean searchOutsideRootModel) {
+    this(project);
   }
 
   @Override
@@ -101,7 +103,7 @@ public class ProjectAndLibrariesScope extends GlobalSearchScope {
   @Override
   @NotNull
   public String getDisplayName() {
-    return myDisplayName;
+    return myDisplayName == null ? PsiBundle.message("psi.search.scope.project.and.libraries") : myDisplayName;
   }
 
   public void setDisplayName(@NotNull String displayName) {

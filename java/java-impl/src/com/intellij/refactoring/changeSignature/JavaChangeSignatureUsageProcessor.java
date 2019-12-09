@@ -67,7 +67,7 @@ import java.util.*;
  * @author Maxim.Medvedev
  */
 public class JavaChangeSignatureUsageProcessor implements ChangeSignatureUsageProcessor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.changeSignature.JavaChangeSignatureUsageProcessor");
+  private static final Logger LOG = Logger.getInstance(JavaChangeSignatureUsageProcessor.class);
 
   private static boolean isJavaUsage(UsageInfo info) {
     final PsiElement element = info.getElement();
@@ -1047,7 +1047,7 @@ public class JavaChangeSignatureUsageProcessor implements ChangeSignatureUsagePr
     public MultiMap<PsiElement, String> findConflicts(Ref<UsageInfo[]> refUsages) {
       MultiMap<PsiElement, String> conflictDescriptions = new MultiMap<>();
       final PsiMethod prototype = addMethodConflicts(conflictDescriptions);
-      Set<UsageInfo> usagesSet = new HashSet<>(Arrays.asList(refUsages.get()));
+      Set<UsageInfo> usagesSet = ContainerUtil.set(refUsages.get());
       RenameUtil.removeConflictUsages(usagesSet);
       if (myChangeInfo.isVisibilityChanged()) {
         try {

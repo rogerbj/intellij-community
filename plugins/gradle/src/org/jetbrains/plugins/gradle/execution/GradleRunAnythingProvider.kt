@@ -7,6 +7,7 @@ import com.intellij.ide.actions.runAnything.RunAnythingContext
 import com.intellij.ide.actions.runAnything.RunAnythingContext.*
 import com.intellij.ide.actions.runAnything.RunAnythingUtil
 import com.intellij.ide.actions.runAnything.activity.RunAnythingCommandLineProvider
+import com.intellij.ide.actions.runAnything.getPath
 import com.intellij.ide.util.gotoByName.GotoClassModel2
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.externalSystem.model.DataNode
@@ -36,9 +37,8 @@ import org.jetbrains.plugins.gradle.settings.GradleSettings
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.jetbrains.plugins.gradle.util.GradleConstants.SYSTEM_ID
 import org.jetbrains.plugins.gradle.util.GradleUtil
-import java.util.*
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.swing.Icon
-import kotlin.collections.LinkedHashMap
 
 
 class GradleRunAnythingProvider : RunAnythingCommandLineProvider() {
@@ -52,7 +52,12 @@ class GradleRunAnythingProvider : RunAnythingCommandLineProvider() {
 
   override fun getHelpCommand() = HELP_COMMAND
 
+  override fun getHelpCommandAliases() = listOf(SECONDARY_HELP_COMMAND)
+
   override fun getHelpIcon(): Icon? = GradleIcons.Gradle
+
+  override fun getMainListItem(dataContext: DataContext, value: String) =
+    RunAnythingGradleItem(getCommand(value), getIcon(value))
 
   override fun getExecutionContexts(dataContext: DataContext): List<RunAnythingContext> {
     return super.getExecutionContexts(dataContext).filter {
@@ -64,29 +69,31 @@ class GradleRunAnythingProvider : RunAnythingCommandLineProvider() {
     val project = RunAnythingUtil.fetchProject(dataContext)
     val executionContext = dataContext.getData(EXECUTING_CONTEXT) ?: ProjectContext(project)
     val context = createContext(project, executionContext, dataContext)
-    val tasksVariants = completeTasks(commandLine, context)
-    val taskOptionsVariants = completeTaskOptions(commandLine, context)
-    val taskClassArgumentsVariants = completeTaskClassArguments(commandLine, context)
-    val longOptionsVariants = completeOptions(commandLine, isLongOpt = true)
-    val shortOptionsVariants = completeOptions(commandLine, isLongOpt = false)
+    val (tasksVariants, wildcardTaskVariants) = completeTasks(commandLine, context)
+      .partition { it.startsWith(":") }
+      .let { it.first.sorted().asSequence() to it.second.sorted().asSequence() }
+    val taskOptionsVariants = completeTaskOptions(commandLine, context).sorted()
+    val taskClassArgumentsVariants = completeTaskClassArguments(commandLine, context).sorted()
+    val longOptionsVariants = completeOptions(commandLine, isLongOpt = true).sorted()
+    val shortOptionsVariants = completeOptions(commandLine, isLongOpt = false).sorted()
     return when {
       commandLine.toComplete.startsWith("--") ->
-        taskOptionsVariants + longOptionsVariants + shortOptionsVariants + taskClassArgumentsVariants + tasksVariants
+        taskOptionsVariants + longOptionsVariants + shortOptionsVariants + taskClassArgumentsVariants + wildcardTaskVariants + tasksVariants
       commandLine.toComplete.startsWith("-") ->
-        taskOptionsVariants + shortOptionsVariants + longOptionsVariants + taskClassArgumentsVariants + tasksVariants
+        taskOptionsVariants + shortOptionsVariants + longOptionsVariants + taskClassArgumentsVariants + wildcardTaskVariants + tasksVariants
       commandLine.toComplete.startsWith(":") ->
-        tasksVariants + taskOptionsVariants + shortOptionsVariants + longOptionsVariants + taskClassArgumentsVariants
+        tasksVariants + wildcardTaskVariants + taskOptionsVariants + shortOptionsVariants + longOptionsVariants + taskClassArgumentsVariants
       else ->
-        taskClassArgumentsVariants + tasksVariants + taskOptionsVariants + longOptionsVariants + shortOptionsVariants
+        taskClassArgumentsVariants + wildcardTaskVariants + tasksVariants + taskOptionsVariants + longOptionsVariants + shortOptionsVariants
     }
   }
 
-  override fun runAnything(dataContext: DataContext, commandLine: CommandLine): Boolean {
+  override fun run(dataContext: DataContext, commandLine: CommandLine): Boolean {
     val project = RunAnythingUtil.fetchProject(dataContext)
     val executionContext = dataContext.getData(EXECUTING_CONTEXT) ?: ProjectContext(project)
     val context = createContext(project, executionContext, dataContext)
-    val externalProjectPath = context.externalProjectPath ?: return false
-    GradleExecuteTaskAction.runGradle(project, context.executor, externalProjectPath, commandLine.command)
+    val workDirectory = context.externalProjectPath ?: executionContext.getPath() ?: return false
+    GradleExecuteTaskAction.runGradle(project, context.executor, workDirectory, commandLine.command)
     return true
   }
 
@@ -125,11 +132,11 @@ class GradleRunAnythingProvider : RunAnythingCommandLineProvider() {
       !commandLine.toComplete.contains(".") -> "*"
       else -> substringBeforeLast(commandLine.toComplete, ".") + "."
     }
-    val result = ArrayList<String>()
+    val result = ConcurrentLinkedQueue<String>()
     val model = GotoClassModel2(context.project)
     val parameters = FindSymbolParameters.simple(context.project, false)
     model.processNames({ result.add("$callChain$it") }, parameters)
-    return result.asSequence()
+    return result.toList().asSequence()
   }
 
   private fun getTaskOptions(context: Context, task: String): Sequence<TaskOption> {
@@ -257,5 +264,6 @@ class GradleRunAnythingProvider : RunAnythingCommandLineProvider() {
 
   companion object {
     const val HELP_COMMAND = "gradle"
+    private const val SECONDARY_HELP_COMMAND = "gradlew"
   }
 }

@@ -22,7 +22,6 @@ import com.intellij.util.BitUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.NameUtilCore;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,7 +34,7 @@ import java.util.function.Predicate;
  * @author max
  */
 public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.codeStyle.JavaCodeStyleManagerImpl");
+  private static final Logger LOG = Logger.getInstance(JavaCodeStyleManagerImpl.class);
 
   @NonNls private static final String IMPL_SUFFIX = "Impl";
   @NonNls private static final String GET_PREFIX = "get";
@@ -155,7 +154,7 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
     final PsiImportStatementBase[] imports = importList.getAllImportStatements();
     if (imports.length == 0) return null;
 
-    Set<PsiImportStatementBase> allImports = new THashSet<>(Arrays.asList(imports));
+    Set<PsiImportStatementBase> allImports = ContainerUtil.set(imports);
     final Collection<PsiImportStatementBase> redundant;
     if (FileTypeUtils.isInServerPageFile(file)) {
       // remove only duplicate imports
@@ -814,7 +813,7 @@ public class JavaCodeStyleManagerImpl extends JavaCodeStyleManager {
         PsiParameter[] parameters = method.getParameterList().getParameters();
         if (index < parameters.length) {
           String name = parameters[index].getName();
-          if (name != null && TypeConversionUtil.areTypesAssignmentCompatible(subst.substitute(parameters[index].getType()), expr)) {
+          if (TypeConversionUtil.areTypesAssignmentCompatible(subst.substitute(parameters[index].getType()), expr)) {
             name = variableNameToPropertyName(name, VariableKind.PARAMETER);
             if (expressions.length == 1) {
               final String methodName = method.getName();

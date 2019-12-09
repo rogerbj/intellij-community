@@ -1,8 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.dashboard;
 
 import com.google.common.collect.Sets;
 import com.intellij.execution.*;
+import com.intellij.execution.configurations.ConfigurationType;
+import com.intellij.execution.configurations.ConfigurationTypeUtil;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.dashboard.tree.RunConfigurationNode;
 import com.intellij.execution.dashboard.tree.RunDashboardStatusFilter;
@@ -29,8 +31,10 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.ui.content.*;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
+import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -58,6 +62,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
   private final ContentManagerListener myServiceContentManagerListener;
   private State myState = new State();
   private final Set<String> myTypes = new THashSet<>();
+  private final Set<RunConfiguration> myHiddenConfigurations = new THashSet<>();
   private volatile List<List<RunDashboardServiceImpl>> myServices = Collections.emptyList();
   private final ReentrantReadWriteLock myServiceLock = new ReentrantReadWriteLock();
   private final RunDashboardStatusFilter myStatusFilter = new RunDashboardStatusFilter();
@@ -90,6 +95,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
 
       @Override
       public void runConfigurationRemoved(@NotNull RunnerAndConfigurationSettings settings) {
+        myHiddenConfigurations.remove(settings.getConfiguration());
         if (!myUpdateStarted) {
           syncConfigurations();
           updateDashboardIfNeeded(settings);
@@ -187,7 +193,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
 
   @Override
   public boolean isShowInDashboard(@NotNull RunConfiguration runConfiguration) {
-    return myTypes.contains(runConfiguration.getType().getId());
+    return myTypes.contains(runConfiguration.getType().getId()) && !myHiddenConfigurations.contains(runConfiguration);
   }
 
   @Override
@@ -216,19 +222,21 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
     myState.excludedTypes.removeAll(myTypes);
 
     syncConfigurations();
-    moveRemovedTypesContent(removed);
-    moveAddedTypesContent(added);
+    if (!removed.isEmpty()) {
+      moveRemovedContent(settings -> removed.contains(settings.getType().getId()));
+    }
+    if (!added.isEmpty()) {
+      moveAddedContent(settings -> added.contains(settings.getType().getId()));
+    }
     updateDashboard(true);
   }
 
-  private void moveRemovedTypesContent(Set<String> removedTypes) {
-    if (removedTypes.isEmpty()) return;
-
+  private void moveRemovedContent(Condition<? super RunnerAndConfigurationSettings> condition) {
     ExecutionManagerImpl executionManager = (ExecutionManagerImpl)ExecutionManager.getInstance(myProject);
     RunContentManagerImpl runContentManager = (RunContentManagerImpl)executionManager.getContentManager();
     for (RunDashboardService service : getRunConfigurations()) {
       Content content = service.getContent();
-      if (content == null || !removedTypes.contains(service.getSettings().getType().getId())) continue;
+      if (content == null || !condition.value(service.getSettings())) continue;
 
       RunContentDescriptor descriptor = RunContentManagerImpl.getRunContentDescriptorByContent(content);
       if (descriptor == null) continue;
@@ -242,13 +250,10 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
     }
   }
 
-  private void moveAddedTypesContent(Set<String> addedTypes) {
-    if (addedTypes.isEmpty()) return;
-
+  private void moveAddedContent(Condition<? super RunnerAndConfigurationSettings> condition) {
     ExecutionManagerImpl executionManager = (ExecutionManagerImpl)ExecutionManager.getInstance(myProject);
     RunContentManagerImpl runContentManager = (RunContentManagerImpl)executionManager.getContentManager();
-    List<RunContentDescriptor> descriptors =
-      executionManager.getRunningDescriptors(settings -> addedTypes.contains(settings.getType().getId()));
+    List<RunContentDescriptor> descriptors = executionManager.getRunningDescriptors(condition);
     for (RunContentDescriptor descriptor : descriptors) {
       Content content = descriptor.getAttachedContent();
       if (content == null) continue;
@@ -261,10 +266,32 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
     }
   }
 
+  public Set<RunConfiguration> getHiddenConfigurations() {
+    return Collections.unmodifiableSet(myHiddenConfigurations);
+  }
+
+  public void hideConfigurations(Collection<RunConfiguration> configurations) {
+    myHiddenConfigurations.addAll(configurations);
+    syncConfigurations();
+    if (!configurations.isEmpty()) {
+      moveRemovedContent(settings -> configurations.contains(settings.getConfiguration()));
+    }
+    updateDashboard(true);
+  }
+
+  public void restoreConfigurations(Collection<RunConfiguration> configurations) {
+    myHiddenConfigurations.removeAll(configurations);
+    syncConfigurations();
+    if (!configurations.isEmpty()) {
+      moveAddedContent(settings -> configurations.contains(settings.getConfiguration()));
+    }
+    updateDashboard(true);
+  }
+
   @NotNull
   List<RunDashboardCustomizer> getCustomizers(@NotNull RunnerAndConfigurationSettings settings,
                                               @Nullable RunContentDescriptor descriptor) {
-    List<RunDashboardCustomizer> customizers = ContainerUtil.newSmartList();
+    List<RunDashboardCustomizer> customizers = new SmartList<>();
     for (RunDashboardCustomizer customizer : CUSTOMIZER_EP_NAME.getExtensions()) {
       if (customizer.isApplicable(settings, descriptor)) {
         customizers.add(customizer);
@@ -325,7 +352,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
       for (RunnerAndConfigurationSettings settings : settingsList) {
         List<RunDashboardServiceImpl> syncedServices = getServices(settings);
         if (syncedServices == null) {
-          syncedServices = ContainerUtil.newSmartList(new RunDashboardServiceImpl(settings));
+          syncedServices = new SmartList<>(new RunDashboardServiceImpl(settings));
         }
         result.add(syncedServices);
       }
@@ -389,7 +416,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
   private void doAddServiceContent(@NotNull RunnerAndConfigurationSettings settings, @NotNull Content content) {
     List<RunDashboardServiceImpl> settingsServices = getServices(settings);
     if (settingsServices == null) {
-      settingsServices = ContainerUtil.newSmartList(new RunDashboardServiceImpl(settings));
+      settingsServices = new SmartList<>(new RunDashboardServiceImpl(settings));
       myServices.add(settingsServices);
     }
 
@@ -529,7 +556,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
     return null;
   }
 
-  private Set<String> getEnableByDefaultTypes() {
+  Set<String> getEnableByDefaultTypes() {
     Set<String> result = new THashSet<>();
     for (RunDashboardDefaultTypesProvider provider : DEFAULT_TYPES_PROVIDER_EP_NAME.getExtensionList()) {
       result.addAll(provider.getDefaultTypeIds(myProject));
@@ -540,6 +567,18 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
   @Nullable
   @Override
   public State getState() {
+    myState.hiddenConfigurations.clear();
+    for (RunConfiguration configuration : myHiddenConfigurations) {
+      ConfigurationType type = configuration.getType();
+      if (myTypes.contains(type.getId())) {
+        Set<String> configurations = myState.hiddenConfigurations.get(type.getId());
+        if (configurations == null) {
+          configurations = new THashSet<>();
+          myState.hiddenConfigurations.put(type.getId(), configurations);
+        }
+        configurations.add(configuration.getName());
+      }
+    }
     return myState;
   }
 
@@ -552,8 +591,25 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
     enableByDefaultTypes.removeAll(myState.excludedTypes);
     myTypes.addAll(enableByDefaultTypes);
     if (!myTypes.isEmpty()) {
+      loadHiddenConfigurations();
       initServiceContentListeners();
       syncConfigurations();
+    }
+  }
+
+  private void loadHiddenConfigurations() {
+    for (Map.Entry<String, Set<String>> entry : myState.hiddenConfigurations.entrySet()) {
+      ConfigurationType type = ConfigurationTypeUtil.findConfigurationType(entry.getKey());
+      if (type == null) continue;
+
+      List<RunConfiguration> configurations = RunManager.getInstance(myProject).getConfigurationsList(type);
+      for (String name : entry.getValue()) {
+        for (RunConfiguration configuration : configurations) {
+          if (configuration.getName().equals(name)) {
+            myHiddenConfigurations.add(configuration);
+          }
+        }
+      }
     }
   }
 
@@ -570,6 +626,7 @@ public class RunDashboardManagerImpl implements RunDashboardManager, PersistentS
   static class State {
     public final Set<String> configurationTypes = new THashSet<>();
     public final Set<String> excludedTypes = new THashSet<>();
+    public final Map<String, Set<String>> hiddenConfigurations = new THashMap<>();
   }
 
   private static class RunDashboardServiceImpl implements RunDashboardService {

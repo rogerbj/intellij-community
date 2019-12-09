@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.diagnostic.VMOptions;
@@ -85,7 +71,8 @@ import static com.intellij.openapi.actionSystem.impl.ActionToolbarImpl.updateAll
 public class KeymapPanel extends JPanel implements SearchableConfigurable, Configurable.NoScroll, KeymapListener, Disposable {
   private JCheckBox preferKeyPositionOverCharOption;
 
-  private final KeymapSchemeManager myManager = new KeymapSelector(this::currentKeymapChanged).getManager();
+  private final KeymapSelector myKeymapSelector = new KeymapSelector(this::currentKeymapChanged);
+  private final KeymapSchemeManager myManager = myKeymapSelector.getManager();
   private final ActionsTree myActionsTree = new ActionsTree();
   private FilterComponent myFilterComponent;
   private TreeExpansionMonitor myTreeExpansionMonitor;
@@ -96,7 +83,6 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
 
   private ShowFNKeysSettingWrapper myShowFN;
 
-  private final @NotNull SystemShortcuts mySystemShortcuts = new SystemShortcuts();
   private boolean myShowOnlyConflicts;
   private JPanel mySystemShortcutConflictsPanel;
   private ToggleActionButton myShowOnlyConflictsButton;
@@ -112,7 +98,7 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
 
     IdeFrame ideFrame = IdeFocusManager.getGlobalInstance().getLastFocusedFrame();
     if (ideFrame != null && KeyboardSettingsExternalizable.isSupportedKeyboardLayout(ideFrame.getComponent())) {
-      preferKeyPositionOverCharOption = new JCheckBox(new AbstractAction(" " + KeyMapBundle.message("prefer.key.position")) {
+      preferKeyPositionOverCharOption = new JCheckBox(new AbstractAction(KeyMapBundle.message("prefer.key.position")) {
         @Override
         public void actionPerformed(ActionEvent e) {
           KeyboardSettingsExternalizable.getInstance().setPreferKeyPositionOverCharOption(preferKeyPositionOverCharOption.isSelected());
@@ -144,15 +130,15 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
         filterTreeByShortcut(myFilteringPanel.getShortcut());
       }
     });
-    //ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(CHANGE_TOPIC, this);
 
-    mySystemShortcutConflictsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+    mySystemShortcutConflictsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 5));
     add(mySystemShortcutConflictsPanel, BorderLayout.SOUTH);
   }
 
   private void fillConflictsPanel(@NotNull Keymap keymap) {
     mySystemShortcutConflictsPanel.removeAll();
-    final @NotNull Collection<SystemShortcuts.ConflictItem> allConflicts = mySystemShortcuts.getUnmutedKeymapConflicts();
+    SystemShortcuts systemShortcuts = SystemShortcuts.getInstance();
+    final @NotNull Collection<SystemShortcuts.ConflictItem> allConflicts = systemShortcuts.getUnmutedKeymapConflicts();
     if (allConflicts.isEmpty())
       return;
 
@@ -164,7 +150,8 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
       final @NotNull String actId = conf.getActionIds()[0];
       href2linkAction.put(actId, ()->{
         final KeyboardShortcut confShortcut = findKeyboardShortcut(keymap, conf.getSysKeyStroke(), actId);
-        addKeyboardShortcut(actId, ActionShortcutRestrictions.getInstance().getForActionId(actId), keymap, this, confShortcut, mySystemShortcuts, myQuickLists);
+        addKeyboardShortcut(actId, ActionShortcutRestrictions.getInstance().getForActionId(actId), keymap, this, confShortcut,
+                            systemShortcuts, myQuickLists);
       });
       final AnAction act = ActionManager.getInstance().getAction(actId);
       final String actText = act == null ? actId : act.getTemplateText();
@@ -183,15 +170,14 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
       htmlBody += " and <a href='" + text + "'>" + text + "</a>";
 
       href2linkAction.put(text, ()->{
-        if (!myShowOnlyConflicts) {
-          myShowOnlyConflicts = true;
-          myActionsTree.setBaseFilter(mySystemShortcuts.createKeymapConflictsActionFilter());
-          myActionsTree.filter(null, myQuickLists);
-        }
+        myShowOnlyConflicts = true;
+        myActionsTree.setBaseFilter(systemShortcuts.createKeymapConflictsActionFilter());
+        myActionsTree.filter(null, myQuickLists);
+        TreeUtil.expandAll(myActionsTree.getTree());
       });
     }
 
-    htmlBody += " shortcuts conflict with macOS system shortcut.<br>Modify shortcuts or change macOS system settings.</p></html>";
+    htmlBody += " shortcuts conflict with macOS system shortcuts.<br>Modify shortcuts or change macOS system settings.</p></html>";
 
     JBLabel jbLabel = new JBLabel(createWarningHtmlText(htmlBody)) {
       @Override
@@ -277,9 +263,10 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
 
   private void currentKeymapChanged(Keymap selectedKeymap) {
     if (selectedKeymap == null) selectedKeymap = new KeymapImpl();
-    mySystemShortcuts.updateKeymapConflicts(selectedKeymap);
-    myShowOnlyConflictsButton.setVisible(!mySystemShortcuts.getUnmutedKeymapConflicts().isEmpty());
-    myActionsTree.setBaseFilter(myShowOnlyConflicts ? mySystemShortcuts.createKeymapConflictsActionFilter() : null);
+    SystemShortcuts systemShortcuts = SystemShortcuts.getInstance();
+    systemShortcuts.updateKeymapConflicts(selectedKeymap);
+    myShowOnlyConflictsButton.setVisible(!systemShortcuts.getUnmutedKeymapConflicts().isEmpty());
+    myActionsTree.setBaseFilter(myShowOnlyConflicts ? systemShortcuts.createKeymapConflictsActionFilter() : null);
     myActionsTree.reset(selectedKeymap, myQuickLists);
     fillConflictsPanel(selectedKeymap);
   }
@@ -355,7 +342,7 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
       }
     });
 
-    myShowOnlyConflictsButton = new ToggleActionButton("Show conflicts", AllIcons.General.Warning) {
+    myShowOnlyConflictsButton = new ToggleActionButton("Show conflicts with system shortcuts", AllIcons.General.ShowWarning) {
       @Override
       public boolean isSelected(AnActionEvent e) {
         return myShowOnlyConflicts;
@@ -363,7 +350,7 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
       @Override
       public void setSelected(AnActionEvent e, boolean state) {
         myShowOnlyConflicts = state;
-        myActionsTree.setBaseFilter(myShowOnlyConflicts ? mySystemShortcuts.createKeymapConflictsActionFilter() : null);
+        myActionsTree.setBaseFilter(myShowOnlyConflicts ? SystemShortcuts.getInstance().createKeymapConflictsActionFilter() : null);
         myActionsTree.filter(null, myQuickLists);
         final JTree tree = myActionsTree.getTree();
         if (myShowOnlyConflicts) {
@@ -525,9 +512,12 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
       final Map<KeyboardShortcut, String> kscs = systemShortcuts.calculateConflicts(keymap, actionId);
       if (kscs != null && !kscs.isEmpty()) {
         for (KeyboardShortcut ksc : kscs.keySet()) {
+          String keyDesc = StringUtil.notNullize(KeymapUtil.getKeystrokeText(ksc.getFirstKeyStroke()));
+          if (ksc.getSecondKeyStroke() != null)
+            keyDesc += ", " + KeymapUtil.getKeystrokeText(ksc.getSecondKeyStroke());
           final int result = Messages.showYesNoCancelDialog(
             parent,
-            "Action shortcut " + ksc + " is already assigned to system action '" + kscs.get(ksc) + "' . Do you want to remove this shortcut?",
+            "Action shortcut " + keyDesc + " is already assigned to system action '" + kscs.get(ksc) + "' . Do you want to remove this shortcut?",
             KeyMapBundle.message("conflict.shortcut.dialog.title"),
             KeyMapBundle.message("conflict.shortcut.dialog.remove.button"),
             KeyMapBundle.message("conflict.shortcut.dialog.leave.button"),
@@ -621,6 +611,7 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
 
   @Override
   public JComponent createComponent() {
+    myKeymapSelector.attachKeymapListener(this);
     ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(CHANGE_TOPIC, this);
     return this;
   }
@@ -683,7 +674,7 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
       group.add(new DumbAwareAction("Add Keyboard Shortcut") {
         @Override
         public void actionPerformed(@NotNull AnActionEvent e) {
-          addKeyboardShortcut(actionId, restrictions, selectedKeymap, KeymapPanel.this, null, mySystemShortcuts, myQuickLists);
+          addKeyboardShortcut(actionId, restrictions, selectedKeymap, KeymapPanel.this, null, SystemShortcuts.getInstance(), myQuickLists);
           currentKeymapChanged();
         }
       });
@@ -849,8 +840,7 @@ public class KeymapPanel extends JPanel implements SearchableConfigurable, Confi
         }
         else {
           if (manager == null) {
-            manager = new KeymapSelector(selectedKeymap -> {
-            }).getManager();
+            manager = new KeymapSelector(selectedKeymap -> { }).getManager();
             manager.reset();
           }
           mutable = manager.getMutableKeymap(selected);

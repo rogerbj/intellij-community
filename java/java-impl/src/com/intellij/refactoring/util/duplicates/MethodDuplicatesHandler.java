@@ -152,7 +152,7 @@ public class MethodDuplicatesHandler implements RefactoringActionHandler, Contex
 
     scope.accept(new PsiRecursiveElementVisitor() {
       private int myFileCount;
-      @Override public void visitFile(final PsiFile file) {
+      @Override public void visitFile(@NotNull final PsiFile file) {
         if (progressIndicator != null){
           if (progressIndicator.isCanceled()) return;
           progressIndicator.setFraction(((double)myFileCount++)/fileCount);
@@ -292,7 +292,7 @@ public class MethodDuplicatesHandler implements RefactoringActionHandler, Contex
     final List<? extends PsiVariable> inputVariables = 
       member instanceof PsiMethod ? Arrays.asList(((PsiMethod)member).getParameterList().getParameters()) : new ArrayList<>();
     return new DuplicatesFinder(pattern,
-                                new InputVariables(inputVariables, member.getProject(), new LocalSearchScope(pattern), false),
+                                new InputVariables(inputVariables, member.getProject(), new LocalSearchScope(pattern), false, Collections.emptySet()),
                                 matchedReturnValue,
                                 new ArrayList<>());
   }

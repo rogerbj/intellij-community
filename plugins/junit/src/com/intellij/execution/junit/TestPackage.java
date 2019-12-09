@@ -12,6 +12,8 @@ import com.intellij.execution.testframework.SourceScope;
 import com.intellij.execution.testframework.TestSearchScope;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Condition;
@@ -30,6 +32,7 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.io.File;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 public class TestPackage extends TestObject {
@@ -55,20 +58,18 @@ public class TestPackage extends TestObject {
   }
 
   @Override
-  public SearchForTestsTask createSearchingForTestsTask() {
+  public SearchForTestsTask createSearchingForTestsTask() throws ExecutionException {
     final JUnitConfiguration.Data data = getConfiguration().getPersistentData();
     final Module module = getConfiguration().getConfigurationModule().getModule();
+    final TestClassFilter classFilter = computeFilter(data);
     return new SearchForTestsTask(getConfiguration().getProject(), myServerSocket) {
       private final Set<Location<?>> myClasses = new LinkedHashSet<>();
-
       @Override
       protected void search() {
         myClasses.clear();
         final SourceScope sourceScope = getSourceScope();
         if (sourceScope != null) {
           try {
-            final TestClassFilter classFilter = getClassFilter(data);
-            LOG.assertTrue(classFilter.getBase() != null);
             if (JUnitStarter.JUNIT5_PARAMETER.equals(getRunner())) {
               searchTests5(module, classFilter, myClasses);
             }
@@ -94,7 +95,33 @@ public class TestPackage extends TestObject {
         }
         catch (Exception ignored) {}
       }
+
+      @Override
+      protected boolean requiresSmartMode() {
+        return TestPackage.this.requiresSmartMode();
+      }
     };
+  }
+
+  @Nullable
+  private TestClassFilter computeFilter(JUnitConfiguration.Data data) throws ExecutionException {
+    final TestClassFilter classFilter;
+    try {
+      classFilter =
+        DumbService.getInstance(getConfiguration().getProject()).computeWithAlternativeResolveEnabled(() -> getClassFilter(data));
+      LOG.assertTrue(classFilter.getBase() != null);
+      return classFilter;
+    }
+    catch (JUnitUtil.NoJUnitException e) {
+      return null;
+    }
+    catch (IndexNotReadyException e) {
+      throw new ExecutionException("Running tests is disabled during index update");
+    }
+  }
+
+  protected boolean requiresSmartMode() {
+    return !JUnitStarter.JUNIT5_PARAMETER.equals(getRunner());
   }
 
   protected boolean filterOutputByDirectoryForJunit5(final Set<Location<?>> classNames) {
@@ -177,6 +204,20 @@ public class TestPackage extends TestObject {
 
     createServerSocket(javaParameters);
     return javaParameters;
+  }
+
+  @Override
+  protected void collectPackagesToOpen(List<String> options) {
+    try {
+      SourceScope sourceScope = getSourceScope();
+      if (sourceScope != null) {
+        collectSubPackages(options,
+                           getPackage(getConfiguration().getPersistentData()),
+                           sourceScope.getGlobalSearchScope());
+      }
+    }
+    catch (CantRunException ignored) {
+    }
   }
 
   @Override

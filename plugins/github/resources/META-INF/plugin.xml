@@ -21,6 +21,8 @@
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceImplementation="org.jetbrains.plugins.github.util.GithubSettings"/>
     <projectService serviceImplementation="org.jetbrains.plugins.github.pullrequest.config.GithubPullRequestsProjectUISettings"/>
+
+    <projectService serviceImplementation="org.jetbrains.plugins.github.ui.GHPREditorContentSynchronizer"/>
     <applicationService serviceImplementation="org.jetbrains.plugins.github.authentication.accounts.GithubAccountManager"/>
     <applicationService serviceImplementation="org.jetbrains.plugins.github.authentication.GithubAuthenticationManager"/>
     <applicationService serviceImplementation="org.jetbrains.plugins.github.api.GithubApiRequestExecutor$Factory"/>
@@ -50,6 +52,15 @@
     <fileEditorProvider implementation="org.jetbrains.plugins.github.pullrequest.GHPREditorProvider"/>
   </extensions>
 
+  <applicationListeners>
+    <listener class="org.jetbrains.plugins.github.pullrequest.GHPRToolWindowTabsManager$AccountsListener"
+              topic="org.jetbrains.plugins.github.authentication.accounts.AccountRemovedListener"
+              activeInHeadlessMode="false" activeInTestMode="false"/>
+    <listener class="org.jetbrains.plugins.github.pullrequest.GHPRToolWindowTabsManager$AccountsListener"
+              topic="org.jetbrains.plugins.github.authentication.accounts.AccountTokenChangedListener"
+              activeInHeadlessMode="false" activeInTestMode="false"/>
+  </applicationListeners>
+
   <projectListeners>
     <listener class="org.jetbrains.plugins.github.pullrequest.GHPRToolWindowTabsManager$RemoteUrlsListener"
               topic="com.intellij.dvcs.repo.VcsRepositoryMappingListener"
@@ -57,6 +68,8 @@
     <listener class="org.jetbrains.plugins.github.pullrequest.GHPRToolWindowTabsManager$RemoteUrlsListener"
               topic="git4idea.repo.GitRepositoryChangeListener"
               activeInHeadlessMode="false" activeInTestMode="false"/>
+
+    <listener class="org.jetbrains.plugins.github.ui.GHPREditorContentSynchronizer$MyToolwindowListener" topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener" />
   </projectListeners>
 
   <extensions defaultExtensionNs="Git4Idea">
@@ -92,18 +105,24 @@
       <add-to-group group-id="ConsoleEditorPopupMenu"/>
     </action>
     <group id="Github.PullRequest.ToolWindow.List.Popup">
+      <action id="Github.PullRequest.Timeline.Show"
+              class="org.jetbrains.plugins.github.pullrequest.action.GHPRShowTimelineAction"/>
       <action id="Github.PullRequest.Branch.Create"
               class="org.jetbrains.plugins.github.pullrequest.action.GithubPullRequestCreateBranchAction"/>
       <reference id="Github.Open.In.Browser"/>
-      <action id="Github.PullRequest.List.Refresh"
-              class="org.jetbrains.plugins.github.pullrequest.action.GithubPullRequestRefreshListAction"/>
+      <action id="Github.PullRequest.List.Reload"
+              class="org.jetbrains.plugins.github.pullrequest.action.GHPRReloadListAction" use-shortcut-of="Refresh"/>
     </group>
-    <action id="Github.PullRequest.Preview.Refresh"
-            class="org.jetbrains.plugins.github.pullrequest.action.GithubPullRequestRefreshDetailsAction"
-            internal="true"/>
-    <action id="Github.PullRequest.Preview.Refresh.Comments"
-            class="org.jetbrains.plugins.github.pullrequest.action.GithubPullRequestRefreshCommentsAction"
-            internal="true"/>
+    <group id="Github.PullRequest.Details.Popup">
+      <action id="Github.PullRequest.Details.Reload"
+              class="org.jetbrains.plugins.github.pullrequest.action.GHPRReloadDetailsAction" use-shortcut-of="Refresh"/>
+    </group>
+    <action id="Github.PullRequest.Comments.Reload"
+            class="org.jetbrains.plugins.github.pullrequest.action.GHPRReloadCommentsAction" use-shortcut-of="Refresh"/>
+    <group id="Github.PullRequest.Timeline.Popup">
+      <action id="Github.PullRequest.Timeline.Update"
+              class="org.jetbrains.plugins.github.pullrequest.action.GHPRUpdateTimelineAction" use-shortcut-of="Refresh"/>
+    </group>
     <group>
       <action id="Github.PullRequest.Zip.Commits.Toggle"
               class="org.jetbrains.plugins.github.pullrequest.ui.changes.GHPRChangesBrowser$ToggleZipCommitsAction"/>

@@ -9,10 +9,12 @@ import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
@@ -31,6 +33,7 @@ import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.ui.mac.TouchbarDataKeys;
 import com.intellij.ui.mac.foundation.NSDefaults;
 import com.intellij.ui.popup.list.ListPopupImpl;
+import com.intellij.ui.popup.list.PopupListElementRenderer;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.containers.Predicate;
 import com.intellij.util.ui.UIUtil;
@@ -49,6 +52,7 @@ public final class TouchBarsManager {
   private static final Logger LOG = Logger.getInstance(TouchBarsManager.class);
   private static final StackTouchBars ourStack = new StackTouchBars();
 
+  private static final Object ourLoadNstSync = new Object();
   private static final Map<Project, ProjectData> ourProjectData = new HashMap<>(); // NOTE: probably it is better to use api of UserDataHolder
   private static final Map<Container, BarContainer> ourTemporaryBars = new HashMap<>();
 
@@ -56,30 +60,17 @@ public final class TouchBarsManager {
   private static volatile boolean isEnabled = true;
 
   public static void onApplicationInitialized() {
-    if (!isTouchBarAvailable()) {
+    initialize();
+    if (!isInitialized || !isTouchBarEnabled()) {
       return;
     }
 
-    LOG.assertTrue(!isInitialized);
-
-    for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+    for (Project project : ProjectUtil.getOpenProjects()) {
       registerProject(project);
     }
 
     for (Editor editor : EditorFactory.getInstance().getAllEditors()) {
       registerEditor(editor);
-    }
-
-    isInitialized = true;
-
-    { // calculate isEnabled
-      final String appId = Utils.getAppId();
-      if (appId == null || appId.isEmpty()) {
-        LOG.debug("can't obtain application id from NSBundle");
-      } else if (NSDefaults.isShowFnKeysEnabled(appId)) {
-        LOG.info("nst library was loaded, but user enabled fn-keys in touchbar");
-        isEnabled = false;
-      }
     }
 
     EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryListener() {
@@ -105,16 +96,16 @@ public final class TouchBarsManager {
         ApplicationManager.getApplication().assertIsDispatchThread();
         // System.out.println("closed project: " + project);
 
-        final ProjectData pd;
+        ProjectData projectData;
         synchronized (ourProjectData) {
-          pd = ourProjectData.remove(project);
-          if (pd == null) {
+          projectData = ourProjectData.remove(project);
+          if (projectData == null) {
             LOG.error("project data already was removed: " + project);
             return;
           }
 
-          ourStack.removeAll(pd.getAllContainers());
-          pd.releaseAll();
+          ourStack.removeAll(projectData.getAllContainers());
+          projectData.releaseAll();
         }
       }
     });
@@ -129,7 +120,7 @@ public final class TouchBarsManager {
 
     // System.out.println("opened project " + project + ", set default touchbar");
 
-    final ProjectData projectData = new ProjectData(project);
+    ProjectData projectData = new ProjectData(project);
     synchronized (ourProjectData) {
       final ProjectData prev = ourProjectData.put(project, projectData);
       if (prev != null) {
@@ -164,6 +155,32 @@ public final class TouchBarsManager {
         ApplicationManager.getApplication().invokeLater(TouchBarsManager::_updateCurrentTouchbar);
       }
     });
+  }
+
+  public static void initialize() {
+    if (isInitialized) {
+      return;
+    }
+
+    synchronized (ourLoadNstSync) {
+      if (isInitialized) {
+        return;
+      }
+
+      NST.initialize();
+
+      // calculate isEnabled
+      String appId = Utils.getAppId();
+      if (appId == null || appId.isEmpty()) {
+        LOG.debug("can't obtain application id from NSBundle");
+      }
+      else if (NSDefaults.isShowFnKeysEnabled(appId)) {
+        LOG.info("nst library was loaded, but user enabled fn-keys in touchbar");
+        isEnabled = false;
+      }
+
+      isInitialized = true;
+    }
   }
 
   public static boolean isTouchBarAvailable() {
@@ -381,6 +398,10 @@ public final class TouchBarsManager {
       return null;
 
     @NotNull ListPopupImpl listPopup = (ListPopupImpl)popup;
+
+    //some toolbars, e.g. one from DarculaJBPopupComboPopup are too custom to be supported here
+    if (!(listPopup.getList().getCellRenderer() instanceof PopupListElementRenderer)) return null;
+
     final TouchBar tb = BuildUtils.createScrubberBarFromPopup(listPopup);
     BarContainer container = new BarContainer(BarType.POPUP, tb, null, popupComponent);
     ourTemporaryBars.put(popupComponent, container);
@@ -398,7 +419,7 @@ public final class TouchBarsManager {
       return null;
     }
 
-    final ModalityState ms = BuildUtils.getCurrentModalityState();
+    final @NotNull ModalityState ms = LaterInvocator.getCurrentModalityState();
     final BarType btype = ModalityState.NON_MODAL.equals(ms) ? BarType.DIALOG : BarType.MODAL_DIALOG;
     BarContainer bc;
     TouchBar tb;

@@ -139,6 +139,10 @@ public abstract class ActionPlaces {
 
   public static final String INTENTION_MENU = "IntentionMenu";
 
+  public static final String TEXT_EDITOR_WITH_PREVIEW = "TextEditorWithPreview";
+
+  public static final String NOTIFICATION = "Notification";
+
   public static boolean isMainMenuOrActionSearch(String place) {
     return MAIN_MENU.equals(place) || ACTION_SEARCH.equals(place) ||
            KEYBOARD_SHORTCUT.equals(place) || MOUSE_SHORTCUT.equals(place) || FORCE_TOUCH.equals(place);

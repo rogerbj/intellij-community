@@ -72,11 +72,15 @@ class GroovyInferenceSessionBuilder constructor(
   }
 }
 
-fun buildTopLevelSession(place: PsiElement): GroovyInferenceSession {
-  val session = GroovyInferenceSession(PsiTypeParameter.EMPTY_ARRAY, PsiSubstitutor.EMPTY, place, false)
+fun buildTopLevelSession(place: PsiElement,
+                         session: GroovyInferenceSession = constructDefaultInferenceSession(place)): GroovyInferenceSession {
   val expression = findExpression(place) ?: return session
   val startConstraint = if (expression is GrBinaryExpression || expression is GrAssignmentExpression && expression.isOperatorAssignment) {
     OperatorExpressionConstraint(expression as GrOperatorExpression)
+  }
+  else if (expression is GrSafeCastExpression && expression.operand !is GrFunctionalExpression) {
+    val result = expression.reference.advancedResolve() as? GroovyMethodResult ?: return session
+    MethodCallConstraint(null, result, expression)
   }
   else {
     val mostTopLevelExpression = getMostTopLevelExpression(expression)
@@ -87,10 +91,15 @@ fun buildTopLevelSession(place: PsiElement): GroovyInferenceSession {
   return session
 }
 
-private fun findExpression(place: PsiElement): GrExpression? {
+private fun constructDefaultInferenceSession(place: PsiElement): GroovyInferenceSession {
+  return GroovyInferenceSession(PsiTypeParameter.EMPTY_ARRAY, PsiSubstitutor.EMPTY, place, false)
+}
+
+fun findExpression(place: PsiElement): GrExpression? {
   val parent = place.parent
   return when {
     parent is GrAssignmentExpression && parent.lValue === place -> parent
+    place is GrIndexProperty -> place
     parent is GrMethodCall -> parent
     parent is GrNewExpression -> parent
     parent is GrClassTypeElement -> parent.parent as? GrSafeCastExpression
@@ -123,51 +132,70 @@ fun getExpectedType(expression: GrExpression): PsiType? {
 }
 
 private fun getExpectedTypeAndPosition(expression: GrExpression): ExpectedType? {
-  val parent = expression.parent
-  val parentMethod = PsiTreeUtil.getParentOfType(parent, GrMethod::class.java, false, GrFunctionalExpression::class.java)
+  return getAssignmentOrReturnExpectedTypeAndPosition(expression)
+         ?: getArgumentExpectedType(expression)
+}
 
-  if (parent is GrReturnStatement && parentMethod != null) {
-    val returnType = parentMethod.returnType ?: return null
-    return ExpectedType(returnType, RETURN_VALUE)
-  }
-  else if (isExitPoint(expression) && parentMethod != null) {
-    val returnType = parentMethod.returnType ?: return null
-    if (TypeConversionUtil.isVoidType(returnType)) return null
-    return ExpectedType(returnType, RETURN_VALUE)
-  }
-  else if (parent is GrAssignmentExpression && expression == parent.rValue) {
-    val lValue = skipParentheses(parent.lValue, false)
-    val type = (if (lValue is GrExpression && lValue !is GrIndexProperty) lValue.nominalType else null) ?: return null
-    return ExpectedType(type, ASSIGNMENT)
+private fun getAssignmentOrReturnExpectedTypeAndPosition(expression: GrExpression): ExpectedType? {
+  return getAssignmentExpectedType(expression)?.let { ExpectedType(it, ASSIGNMENT) }
+         ?: getReturnExpectedType(expression)?.let { ExpectedType(it, RETURN_VALUE) }
+}
+
+fun getAssignmentOrReturnExpectedType(expression: GrExpression): PsiType? {
+  return getAssignmentExpectedType(expression)
+         ?: getReturnExpectedType(expression)
+}
+
+fun getAssignmentExpectedType(expression: GrExpression): PsiType? {
+  val parent: PsiElement = expression.parent
+  if (parent is GrAssignmentExpression && expression == parent.rValue) {
+    val lValue: PsiElement? = skipParentheses(parent.lValue, false)
+    return if (lValue is GrExpression && lValue !is GrIndexProperty) lValue.nominalType else null
   }
   else if (parent is GrVariable) {
-    val declaredType = parent.declaredType ?: return null
-    return ExpectedType(declaredType, ASSIGNMENT)
+    return parent.declaredType
   }
   else if (parent is GrListOrMap) {
-    val pParent = parent.parent
+    val pParent: PsiElement? = parent.parent
     if (pParent is GrVariableDeclaration && pParent.isTuple) {
-      val index = parent.initializers.indexOf(expression)
-      val declaredType = pParent.variables.getOrNull(index)?.declaredType ?: return null
-      return ExpectedType(declaredType, ASSIGNMENT)
+      val index: Int = parent.initializers.indexOf(expression)
+      return pParent.variables.getOrNull(index)?.declaredType
     }
     else if (pParent is GrTupleAssignmentExpression) {
-      val index = parent.initializers.indexOf(expression)
-      val expressions = pParent.lValue.expressions
-      val lValue = expressions.getOrNull(index)
-      val declaredType = (lValue?.staticReference?.resolve() as? GrVariable)?.declaredType ?: return null
-      return ExpectedType(declaredType, ASSIGNMENT)
+      val index: Int = parent.initializers.indexOf(expression)
+      val expressions: Array<out GrReferenceExpression> = pParent.lValue.expressions
+      val lValue: GrReferenceExpression = expressions.getOrNull(index) ?: return null
+      val variable: GrVariable? = lValue.staticReference.resolve() as? GrVariable
+      return variable?.declaredType
     }
   }
-  else if (parent is GrArgumentList) {
-    val call = parent.parent as? GrCallExpression ?: return null
-    val result = call.advancedResolve() as? GroovyMethodResult ?: return null
-    val mapping = result.candidate?.argumentMapping ?: return null
-    val type = result.substitutor.substitute(mapping.expectedType(ExpressionArgument(expression))) ?: return null
-    return ExpectedType(type, METHOD_PARAMETER)
-  }
-
   return null
+}
+
+private fun getReturnExpectedType(expression: GrExpression): PsiType? {
+  val parent: PsiElement = expression.parent
+  val parentMethod: GrMethod? = PsiTreeUtil.getParentOfType(parent, GrMethod::class.java, false, GrFunctionalExpression::class.java)
+  if (parentMethod == null) {
+    return null
+  }
+  if (parent is GrReturnStatement) {
+    return parentMethod.returnType
+  }
+  else if (isExitPoint(expression)) {
+    val returnType: PsiType = parentMethod.returnType ?: return null
+    if (TypeConversionUtil.isVoidType(returnType)) return null
+    return returnType
+  }
+  return null
+}
+
+private fun getArgumentExpectedType(expression: GrExpression): ExpectedType? {
+  val parent = expression.parent as? GrArgumentList ?: return null
+  val call = parent.parent as? GrCallExpression ?: return null
+  val result = call.advancedResolve() as? GroovyMethodResult ?: return null
+  val mapping = result.candidate?.argumentMapping ?: return null
+  val type = result.substitutor.substitute(mapping.expectedType(ExpressionArgument(expression))) ?: return null
+  return ExpectedType(type, METHOD_PARAMETER)
 }
 
 internal typealias ExpressionPredicate = (GrExpression) -> Boolean

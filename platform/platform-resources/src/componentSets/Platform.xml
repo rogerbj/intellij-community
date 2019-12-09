@@ -53,7 +53,7 @@
     </component>
 
     <component>
-      <implementation-class>com.intellij.notification.impl.MacEventReader$ProjectTracker</implementation-class>
+      <implementation-class>com.intellij.notification.impl.MacEventReader$MacProjectTracker</implementation-class>
       <headless-implementation-class/>
     </component>
 
@@ -69,6 +69,11 @@
 
     <component>
       <implementation-class>com.intellij.notification.impl.NotificationsManagerImpl$ProjectNotificationsComponent</implementation-class>
+    </component>
+
+    <component>
+      <implementation-class>com.intellij.ide.favoritesTreeView.FavoritesManager</implementation-class>
+      <option name="workspace" value="true"/>
     </component>
   </project-components>
 </idea-plugin>

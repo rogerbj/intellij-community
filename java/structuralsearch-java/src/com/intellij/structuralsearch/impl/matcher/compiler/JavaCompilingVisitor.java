@@ -27,6 +27,7 @@ import com.intellij.structuralsearch.impl.matcher.predicates.RegExpPredicate;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -130,7 +131,7 @@ public class JavaCompilingVisitor extends JavaRecursiveElementWalkingVisitor {
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       super.visitElement(element);
       if (element instanceof PsiMethodReferenceExpression) {
         GlobalCompilingVisitor.addFilesToSearchForGivenWord("::", true, CODE, myCompilingVisitor.getContext());
@@ -177,15 +178,15 @@ public class JavaCompilingVisitor extends JavaRecursiveElementWalkingVisitor {
   public void visitDocTag(PsiDocTag psiDocTag) {
     super.visitDocTag(psiDocTag);
 
-    NodeIterator sons = new DocValuesIterator(psiDocTag.getFirstChild());
-    while (sons.hasNext()) {
-      myCompilingVisitor.setHandler(sons.current(), new DocDataHandler());
-      sons.advance();
+    final NodeIterator nodes = new DocValuesIterator(psiDocTag.getFirstChild());
+    while (nodes.hasNext()) {
+      myCompilingVisitor.setHandler(nodes.current(), new DocDataHandler());
+      nodes.advance();
     }
   }
 
   @Override
-  public void visitComment(PsiComment comment) {
+  public void visitComment(@NotNull PsiComment comment) {
     super.visitComment(comment);
 
     final CompiledPattern pattern = myCompilingVisitor.getContext().getPattern();
@@ -203,9 +204,14 @@ public class JavaCompilingVisitor extends JavaRecursiveElementWalkingVisitor {
         myCompilingVisitor.processTokenizedName(predicate.getRegExp(), true, COMMENT);
       }
     }
-    else {
-      final MatchingHandler handler = myCompilingVisitor.processPatternStringWithFragments(comment.getText(), COMMENT);
-      if (handler != null) comment.putUserData(CompiledPattern.HANDLER_KEY, handler);
+    else if (!commentText.isEmpty()) {
+      if (myCompilingVisitor.hasFragments(commentText)) {
+        final MatchingHandler handler = myCompilingVisitor.processPatternStringWithFragments(comment.getText(), COMMENT);
+        if (handler != null) comment.putUserData(CompiledPattern.HANDLER_KEY, handler);
+      }
+      else {
+        myCompilingVisitor.processTokenizedName(commentText, false, COMMENT);
+      }
     }
   }
 
@@ -541,7 +547,7 @@ public class JavaCompilingVisitor extends JavaRecursiveElementWalkingVisitor {
   }
 
   @Override
-  public void visitElement(PsiElement element) {
+  public void visitElement(@NotNull PsiElement element) {
     myCompilingVisitor.handle(element);
     super.visitElement(element);
   }

@@ -1,6 +1,7 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
+import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Pair;
@@ -139,15 +140,21 @@ public abstract class LocalInspectionTool extends InspectionProfileEntry {
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, final boolean isOnTheFly) {
     return new PsiElementVisitor() {
       @Override
-      public void visitFile(PsiFile file) {
+      public void visitFile(@NotNull PsiFile file) {
         addDescriptors(checkFile(file, holder.getManager(), isOnTheFly));
       }
 
       private void addDescriptors(final ProblemDescriptor[] descriptors) {
         if (descriptors != null) {
           for (ProblemDescriptor descriptor : descriptors) {
-            LOG.assertTrue(descriptor != null, LocalInspectionTool.this.getClass().getName());
-            holder.registerProblem(descriptor);
+            if (descriptor != null) {
+              holder.registerProblem(descriptor);
+            }
+            else {
+              Class<?> inspectionToolClass = LocalInspectionTool.this.getClass();
+              LOG.error(PluginException.createByClass("Array returned from checkFile() method of " + inspectionToolClass + " contains null element",
+                                                      null, inspectionToolClass));
+            }
           }
         }
       }
@@ -196,7 +203,7 @@ public abstract class LocalInspectionTool extends InspectionProfileEntry {
     final InjectedLanguageManager injectedLanguageManager = InjectedLanguageManager.getInstance(holder.getProject());
     file.accept(new PsiRecursiveElementWalkingVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         element.accept(customVisitor);
         processInjectedFile(element);
 
@@ -210,7 +217,7 @@ public abstract class LocalInspectionTool extends InspectionProfileEntry {
             for (Pair<PsiElement, TextRange> pair : files) {
               pair.first.accept(new PsiRecursiveElementWalkingVisitor() {
                 @Override
-                public void visitElement(PsiElement injectedElement) {
+                public void visitElement(@NotNull PsiElement injectedElement) {
                   injectedElement.accept(customVisitor);
                   super.visitElement(injectedElement);
                 }

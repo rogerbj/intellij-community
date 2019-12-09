@@ -72,16 +72,22 @@ public class PySubscriptionExpressionImpl extends PyElementImpl implements PySub
   @Nullable
   @Override
   public PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
-    final PsiPolyVariantReference reference = getReference(PyResolveContext.noImplicits().withTypeEvalContext(context));
+    final PsiPolyVariantReference reference = getReference(PyResolveContext.defaultContext().withTypeEvalContext(context));
     final List<PyType> members = new ArrayList<>();
     final PyExpression indexExpression = getIndexExpression();
     final PyType type = indexExpression != null ? context.getType(getOperand()) : null;
     if (type instanceof PyTupleType) {
       final PyTupleType tupleType = (PyTupleType)type;
       return Optional
-        .ofNullable(new PyEvaluator().evaluate(indexExpression))
-        .map(value -> PyUtil.as(value, Integer.class))
+        .ofNullable(PyEvaluator.evaluate(indexExpression, Integer.class))
         .map(tupleType::getElementType)
+        .orElse(null);
+    }
+    if (type instanceof PyTypedDictType) {
+      final PyTypedDictType typedDictType = (PyTypedDictType)type;
+      return Optional
+        .ofNullable(PyEvaluator.evaluate(indexExpression, String.class))
+        .map(typedDictType::getElementType)
         .orElse(null);
     }
     for (PsiElement resolved : PyUtil.multiResolveTopPriority(reference)) {
@@ -110,7 +116,7 @@ public class PySubscriptionExpressionImpl extends PyElementImpl implements PySub
 
   @Override
   public PsiReference getReference() {
-    return getReference(PyResolveContext.noImplicits());
+    return getReference(PyResolveContext.defaultContext());
   }
 
   @NotNull

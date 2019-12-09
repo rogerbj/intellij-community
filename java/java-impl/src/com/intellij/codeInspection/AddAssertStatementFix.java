@@ -29,7 +29,7 @@ import org.jetbrains.annotations.NotNull;
  * @author ven
  */
 public class AddAssertStatementFix implements LocalQuickFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.AddAssertStatementFix");
+  private static final Logger LOG = Logger.getInstance(AddAssertStatementFix.class);
   private final String myText;
 
   public AddAssertStatementFix(@NotNull String text) {
@@ -59,7 +59,7 @@ public class AddAssertStatementFix implements LocalQuickFix {
     try {
       final PsiElementFactory factory = JavaPsiFacade.getElementFactory(element.getProject());
       @NonNls String text = "assert " + myText + ";";
-      PsiAssertStatement assertStatement = (PsiAssertStatement)factory.createStatementFromText(text, null);
+      PsiAssertStatement assertStatement = (PsiAssertStatement)factory.createStatementFromText(text, element);
 
       final PsiElement parent = anchorElement.getParent();
       if (parent instanceof PsiCodeBlock) {

@@ -24,9 +24,14 @@
 
 package git4idea.ignore.lang;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.changes.ignore.lang.IgnoreFileType;
 import com.intellij.openapi.vcs.changes.ignore.lang.IgnoreLanguage;
+import com.intellij.openapi.vfs.VirtualFile;
+import git4idea.repo.GitRepository;
+import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Git exclude (.git/info/exclude) {@link IgnoreLanguage} definition.
@@ -54,5 +59,26 @@ public class GitExcludeLanguage extends IgnoreLanguage {
   @Override
   public IgnoreFileType getFileType() {
     return GitExcludeFileType.INSTANCE;
+  }
+
+  @Nullable
+  @Override
+  public VirtualFile getAffectedRoot(@NotNull Project project, @NotNull VirtualFile ignoreFile) {
+    //ignoreFile = .git/info/exclude
+    GitRepository repository = findRepository(project, ignoreFile);
+    if (repository == null) return null;
+
+    return repository.getRoot();
+  }
+
+  @Nullable
+  private static GitRepository findRepository(@NotNull Project project, @NotNull VirtualFile excludeFile) {
+    String excludeFilePath = excludeFile.getPath();
+    for (GitRepository repository : GitRepositoryManager.getInstance(project).getRepositories()) {
+      if (repository.getRepositoryFiles().isExclude(excludeFilePath)) {
+        return repository;
+      }
+    }
+    return null;
   }
 }

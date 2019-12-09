@@ -6,6 +6,7 @@ import com.intellij.execution.filters.HyperlinkInfo;
 import com.intellij.ide.DataManager;
 import com.intellij.notification.impl.NotificationsConfigurationImpl;
 import com.intellij.notification.impl.NotificationsManagerImpl;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
@@ -14,10 +15,8 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
-import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Pair;
@@ -35,7 +34,6 @@ import com.intellij.util.IJSwingUtilities;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.hash.LinkedHashMap;
-import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -439,7 +437,7 @@ public final class EventLog {
     }, true);
   }
 
-  static final class ProjectTracker {
+  static final class ProjectTracker implements Disposable {
     private final Map<String, EventLogConsole> myCategoryMap = ContainerUtil.newConcurrentMap();
     private final List<Notification> myInitial = ContainerUtil.createLockFreeCopyOnWriteList();
     private final LogModel myProjectModel;
@@ -456,20 +454,21 @@ public final class EventLog {
         }
       }
 
-      MessageBusConnection connection = project.getMessageBus().connect();
-      connection.subscribe(Notifications.TOPIC, new Notifications() {
+      project.getMessageBus().connect().subscribe(Notifications.TOPIC, new Notifications() {
         @Override
         public void notify(@NotNull Notification notification) {
           printNotification(notification);
         }
       });
-      connection.subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
-        @Override
-        public void projectClosed(@NotNull Project project) {
-          getApplicationService().myModel.setStatusMessage(null, 0);
-          StatusBar.Info.set("", null, LOG_REQUESTOR);
-        }
-      });
+    }
+
+    @Override
+    public void dispose() {
+      EventLog appService = ApplicationManager.getApplication().getServiceIfCreated(EventLog.class);
+      if (appService != null) {
+        appService.myModel.setStatusMessage(null, 0);
+      }
+      StatusBar.Info.set("", null, LOG_REQUESTOR);
     }
 
     void initDefaultContent() {
@@ -497,8 +496,8 @@ public final class EventLog {
     }
 
     private void doPrintNotification(@NotNull final Notification notification, @NotNull final EventLogConsole console) {
-      StartupManager.getInstance(myProject).runWhenProjectIsInitialized((DumbAwareRunnable)() -> {
-        if (!ShutDownTracker.isShutdownHookRunning() && !myProject.isDisposed()) {
+      StartupManager.getInstance(myProject).runAfterOpened(() -> {
+        if (!ShutDownTracker.isShutdownHookRunning()) {
           ApplicationManager.getApplication().runReadAction(() -> console.doPrintNotification(notification));
         }
       });
@@ -636,7 +635,7 @@ public final class EventLog {
       }
       else {
         for (Project p : openProjects) {
-          if (!p.isDisposedOrDisposeInProgress()) {
+          if (!p.isDisposed()) {
             getProjectComponent(p).printNotification(notification);
           }
         }

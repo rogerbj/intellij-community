@@ -69,6 +69,7 @@ import com.intellij.ui.tabs.FileColorManagerImpl;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.UIUtil;
@@ -78,7 +79,8 @@ import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.nio.file.Files;
@@ -180,7 +182,7 @@ public final class DocumentationManager extends DockablePopupManager<Documentati
   }
 
   @Override
-  public void createToolWindow(PsiElement element, PsiElement originalElement) {
+  public void createToolWindow(@NotNull PsiElement element, PsiElement originalElement) {
     super.createToolWindow(element, originalElement);
 
     if (myToolWindow != null) {
@@ -536,7 +538,7 @@ public final class DocumentationManager extends DockablePopupManager<Documentati
       JBPopup hint = getDocInfoHint();
       if (hint != null && hint.isVisible()) hint.cancel();
     };
-    List<Pair<ActionListener, KeyStroke>> actions = ContainerUtil.newSmartList();
+    List<Pair<ActionListener, KeyStroke>> actions = new SmartList<>();
     AnAction quickDocAction = ActionManager.getInstance().getAction(IdeActions.ACTION_QUICK_JAVADOC);
     for (Shortcut shortcut : quickDocAction.getShortcutSet().getShortcuts()) {
       if (!(shortcut instanceof KeyboardShortcut)) continue;
@@ -666,9 +668,7 @@ public final class DocumentationManager extends DockablePopupManager<Documentati
     PsiElement element = null;
     if (file != null) {
       DocumentationProvider documentationProvider = getProviderFromElement(file);
-      if (documentationProvider instanceof DocumentationProviderEx) {
-        element = assertSameProject(((DocumentationProviderEx)documentationProvider).getCustomDocumentationElement(editor, file, contextElement));
-      }
+      element = assertSameProject(documentationProvider.getCustomDocumentationElement(editor, file, contextElement, offset));
     }
 
     if (element == null) {
@@ -1049,7 +1049,7 @@ public final class DocumentationManager extends DockablePopupManager<Documentati
   }
 
   @Override
-  protected void doUpdateComponent(PsiElement element, PsiElement originalElement, DocumentationComponent component) {
+  protected void doUpdateComponent(@NotNull PsiElement element, PsiElement originalElement, DocumentationComponent component) {
     cancelAndFetchDocInfo(component, new MyCollector(myProject, element, originalElement, null, false));
   }
 

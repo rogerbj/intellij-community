@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.wizards;
 
 import com.intellij.ide.impl.NewProjectUtil;
@@ -17,13 +17,16 @@ import com.intellij.openapi.projectRoots.*;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.ui.configuration.ModulesConfigurator;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.artifacts.ModifiableArtifactModel;
 import com.intellij.projectImport.DeprecatedProjectBuilderForImport;
 import com.intellij.projectImport.ProjectImportBuilder;
-import icons.MavenIcons;
+import com.intellij.projectImport.ProjectOpenProcessor;
+import com.intellij.workspace.legacyBridge.intellij.LegacyBridgeProjectLifecycleListener;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.Promise;
@@ -38,6 +41,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+
+import static icons.OpenapiIcons.RepositoryLibraryLogo;
 
 /**
  * Do not use this project import builder directly.
@@ -75,7 +80,7 @@ public class MavenProjectBuilder extends ProjectImportBuilder<MavenProject> impl
 
   @Override
   public Icon getIcon() {
-    return MavenIcons.MavenLogo;
+    return RepositoryLibraryLogo;
   }
 
   @Override
@@ -94,11 +99,6 @@ public class MavenProjectBuilder extends ProjectImportBuilder<MavenProject> impl
       myParameters = new Parameters();
     }
     return myParameters;
-  }
-
-  @Override
-  public boolean validate(Project current, Project dest) {
-    return true;
   }
 
   private boolean setupProjectImport(@NotNull Project project) {
@@ -190,7 +190,7 @@ public class MavenProjectBuilder extends ProjectImportBuilder<MavenProject> impl
 
     if (ApplicationManager.getApplication().isHeadlessEnvironment() &&
         !ApplicationManager.getApplication().isUnitTestMode()) {
-      Promise<List<Module>> promise = manager.scheduleImportAndResolve(true);
+      Promise<List<Module>> promise = manager.scheduleImportAndResolve();
       manager.waitForResolvingCompletion();
       try {
         return promise.blockingGet(0);
@@ -201,9 +201,11 @@ public class MavenProjectBuilder extends ProjectImportBuilder<MavenProject> impl
     }
 
     boolean isFromUI = model != null;
-    return manager.importProjects(isFromUI
-                                  ? new IdeUIModifiableModelsProvider(project, model, (ModulesConfigurator)modulesProvider, artifactModel)
-                                  : new IdeModifiableModelsProviderImpl(project));
+    if (isFromUI && LegacyBridgeProjectLifecycleListener.Companion.enabled(project)) {
+      throw new UnsupportedOperationException();
+      //return manager.importProjects(new IdeUIModifiableModelsProvider(project, model, (ModulesConfigurator)modulesProvider, artifactModel));
+    }
+    return manager.importProjects();
   }
 
   private static void appendProfilesFromString(Collection<String> selectedProfiles, String profilesList) {
@@ -243,6 +245,18 @@ public class MavenProjectBuilder extends ProjectImportBuilder<MavenProject> impl
         readMavenProjectTree(indicator);
 
         indicator.setText("");
+        indicator.setText2("");
+      }
+    });
+  }
+
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
+  public boolean setSelectedProfiles(MavenExplicitProfiles profiles) {
+    return runConfigurationProcess(ProjectBundle.message("maven.scanning.projects"), new MavenTask() {
+      @Override
+      public void run(MavenProgressIndicator indicator) {
+        readMavenProjectTree(indicator);
         indicator.setText2("");
       }
     });
@@ -365,5 +379,11 @@ public class MavenProjectBuilder extends ProjectImportBuilder<MavenProject> impl
   @Override
   public Project createProject(String name, String path) {
     return ExternalProjectsManagerImpl.setupCreatedProject(super.createProject(name, path));
+  }
+
+  @NotNull
+  @Override
+  public ProjectOpenProcessor getProjectOpenProcessor() {
+    return ProjectOpenProcessor.EXTENSION_POINT_NAME.findExtensionOrFail(MavenProjectOpenProcessor.class);
   }
 }

@@ -27,13 +27,14 @@ import com.intellij.util.io.URLUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
 import java.util.*;
 
 @State(name = "ProjectRootManager")
 public class ProjectRootManagerImpl extends ProjectRootManagerEx implements PersistentStateComponent<Element> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.projectRoots.impl.ProjectRootManagerImpl");
+  private static final Logger LOG = Logger.getInstance(ProjectRootManagerImpl.class);
 
   private static final String PROJECT_JDK_NAME_ATTR = "project-jdk-name";
   private static final String PROJECT_JDK_TYPE_ATTR = "project-jdk-type";
@@ -204,13 +205,20 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Pers
     }
   }
 
+  @Nullable
   @Override
   public String getProjectSdkName() {
     return myProjectSdkName;
   }
 
+  @Nullable
   @Override
-  public void setProjectSdk(Sdk sdk) {
+  public String getProjectSdkTypeName() {
+    return myProjectSdkType;
+  }
+
+  @Override
+  public void setProjectSdk(@Nullable Sdk sdk) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
     if (sdk == null) {
       myProjectSdkName = null;
@@ -233,9 +241,20 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Pers
   }
 
   @Override
+  @Deprecated
   public void setProjectSdkName(@NotNull String name) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
     myProjectSdkName = name;
+    myProjectSdkType = null;
+
+    projectJdkChanged();
+  }
+
+  @Override
+  public void setProjectSdkName(@NotNull String name, @NotNull String sdkTypeName) {
+    ApplicationManager.getApplication().assertWriteAccessAllowed();
+    myProjectSdkName = name;
+    myProjectSdkType = null;
 
     projectJdkChanged();
   }

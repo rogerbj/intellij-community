@@ -4,6 +4,7 @@ package com.intellij.ui.mac.touchbar;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.ui.mac.foundation.ID;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -36,12 +37,8 @@ class TBItemScrubber extends TBItem implements NSTLibrary.ScrubberDelegate {
       final int fromPosition = myNativeItemsCount;
       updateItems(fromPosition, newItemsCount, false);
 
-      final Application app = ApplicationManager.getApplication();
-      if (app != null) {
-        app.executeOnPooledThread(() -> app.runReadAction(() -> updateItems(fromPosition, newItemsCount, true)));
-      } else {
-        updateItems(fromPosition, newItemsCount, true);
-      }
+      final @NotNull Application app = ApplicationManager.getApplication();
+      app.executeOnPooledThread(() -> app.runReadAction(() -> updateItems(fromPosition, newItemsCount, true)));
 
       myNativeItemsCount += newItemsCount;
       return newItemsCount;
@@ -96,12 +93,8 @@ class TBItemScrubber extends TBItem implements NSTLibrary.ScrubberDelegate {
     final ID result = NST.createScrubber(getUid(), myWidth, this, myUpdater, myItems, myNativeItemsCount, myStats);
     NST.enableScrubberItems(result, _getDisabledIndices(), false);
     if (myNativeItemsCount > 0 && result != ID.NIL) {
-      final Application app = ApplicationManager.getApplication();
-      if (app != null) {
-        app.executeOnPooledThread(() -> app.runReadAction(() -> updateItems(0, myNativeItemsCount, true)));
-      } else {
-        updateItems(0, myNativeItemsCount, true);
-      }
+      final @NotNull Application app = ApplicationManager.getApplication();
+      app.executeOnPooledThread(() -> app.runReadAction(() -> updateItems(0, myNativeItemsCount, true)));
     }
     return result;
   }
@@ -132,7 +125,12 @@ class TBItemScrubber extends TBItem implements NSTLibrary.ScrubberDelegate {
     final Runnable myAction;
     boolean myEnabled = true;
 
+    // fields to be filled during packing (just for convenience)
     float fMulX = 0;
+    Icon darkIcon = null;
+    int scaledWidth = 0;
+    int scaledHeight = 0;
+    int offset = 0;
 
     ItemData(Icon icon, String text, Runnable action) {
       this.myIcon = icon;

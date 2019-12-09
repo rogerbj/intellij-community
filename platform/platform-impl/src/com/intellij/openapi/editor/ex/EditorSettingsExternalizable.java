@@ -43,7 +43,7 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     public boolean IS_CARET_INSIDE_TABS;
     @NonNls public String STRIP_TRAILING_SPACES = STRIP_TRAILING_SPACES_CHANGED;
     public boolean IS_ENSURE_NEWLINE_AT_EOF = false;
-    public boolean SHOW_QUICK_DOC_ON_MOUSE_OVER_ELEMENT = false;
+    public boolean SHOW_QUICK_DOC_ON_MOUSE_OVER_ELEMENT = true;
     public int TOOLTIPS_DELAY_MS = TOOLTIPS_DELAY_RANGE.initial;
     public boolean SHOW_INTENTION_BULB = true;
     public boolean IS_CARET_BLINKING = true;
@@ -65,7 +65,6 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     @SuppressWarnings("SpellCheckingInspection")
     public boolean IS_ALL_SOFTWRAPS_SHOWN = false;
     public boolean IS_INDENT_GUIDES_SHOWN = true;
-    public boolean IS_STRING_CONTENT_INDENT_GUIDE_SHOWN = true;
     public boolean IS_FOCUS_MODE = false;
     public boolean IS_ANIMATED_SCROLLING = true;
     public boolean IS_CAMEL_WORDS = false;
@@ -82,8 +81,8 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
 
     public boolean REFRAIN_FROM_SCROLLING = false;
 
-    private boolean SHOW_NOTIFICATION_AFTER_REFORMAT_CODE_ACTION = true;
-    private boolean SHOW_NOTIFICATION_AFTER_OPTIMIZE_IMPORTS_ACTION = true;
+    public boolean SHOW_NOTIFICATION_AFTER_REFORMAT_CODE_ACTION = true;
+    public boolean SHOW_NOTIFICATION_AFTER_OPTIMIZE_IMPORTS_ACTION = true;
 
     public boolean ADD_CARETS_ON_DOUBLE_CTRL = true;
 
@@ -132,8 +131,6 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
   //private boolean myUseTabCharacter = false;
 
   private int myAdditionalLinesCount = 10;
-  private int myAdditionalColumnsCount = 20;
-  private boolean myLineMarkerAreaShown = true;
 
   @NonNls public static final String STRIP_TRAILING_SPACES_NONE = "None";
   @NonNls public static final String STRIP_TRAILING_SPACES_CHANGED = "Changed";
@@ -238,49 +235,22 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     myOptions.ARE_GUTTER_ICONS_SHOWN = val;
   }
 
+  /**
+   * @deprecated Not used, to be removed in version 2021.1.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public int getAdditionalLinesCount() {
     return myAdditionalLinesCount;
   }
 
+  /**
+   * @deprecated Not used, to be removed in version 2021.1.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public void setAdditionalLinesCount(int additionalLinesCount) {
     myAdditionalLinesCount = additionalLinesCount;
-  }
-
-  /**
-   * @deprecated Not used, to be removed in version 2020.1.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  @SuppressWarnings({"UnusedDeclaration", "SpellCheckingInspection"})
-  public int getAdditinalColumnsCount() {
-    return myAdditionalColumnsCount;
-  }
-
-  /**
-   * @deprecated Not used, to be removed in version 2020.1.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  public void setAdditionalColumnsCount(int value) {
-    myAdditionalColumnsCount = value;
-  }
-
-  /**
-   * @deprecated Not used, to be removed in version 2020.1.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  public boolean isLineMarkerAreaShown() {
-    return myLineMarkerAreaShown;
-  }
-
-  /**
-   * @deprecated Not used, to be removed in version 2020.1.
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  public void setLineMarkerAreaShown(boolean lineMarkerAreaShown) {
-    myLineMarkerAreaShown = lineMarkerAreaShown;
   }
 
   public boolean isFoldingOutlineShown() {
@@ -574,14 +544,6 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
 
   public void setIndentGuidesShown(boolean val) {
     myOptions.IS_INDENT_GUIDES_SHOWN = val;
-  }
-
-  public boolean isStringContentIndentGuideShown() {
-    return myOptions.IS_STRING_CONTENT_INDENT_GUIDE_SHOWN;
-  }
-
-  public void setStringContentIndentGuideShown(boolean val) {
-    myOptions.IS_STRING_CONTENT_INDENT_GUIDE_SHOWN = val;
   }
 
   public boolean isFocusMode() {

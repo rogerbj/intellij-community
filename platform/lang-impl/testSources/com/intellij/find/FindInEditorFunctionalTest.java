@@ -6,7 +6,6 @@ import com.intellij.find.editorHeaderActions.RemoveOccurrenceAction;
 import com.intellij.find.editorHeaderActions.ToggleSelectionOnlyAction;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.impl.HeadlessDataManager;
-import com.intellij.idea.IdeaTestApplication;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
 import com.intellij.openapi.application.Application;
@@ -15,6 +14,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.testFramework.ServiceContainerUtil;
+import com.intellij.testFramework.TestApplicationManager;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
@@ -30,7 +30,7 @@ import java.util.function.Function;
 public class FindInEditorFunctionalTest extends AbstractFindInEditorTest {
   @Override
   protected void setUp() throws Exception {
-    IdeaTestApplication.getInstance();
+    TestApplicationManager.getInstance();
     Application application = ApplicationManager.getApplication();
     // Necessary to properly update button states
     ServiceContainerUtil.replaceService(application, DataManager.class, new HeadlessDataManager() {
@@ -73,13 +73,13 @@ public class FindInEditorFunctionalTest extends AbstractFindInEditorTest {
     assertSame(editor, session.getEditor());
     Map<Class<?>, ActionButton> actions = StreamEx.of(UIUtil.findComponentsOfType(component, ActionButton.class))
       .toMap(button -> button.getAction().getClass(), Function.identity(), (a, b) -> null);
-
+    model.setGlobal(false);// 'Find' action puts multiline text in search field (in contrast to 'Replace' action)
     assertFalse(model.isGlobal()); // multiline selection = no-global
     assertEquals(ActionButtonComponent.PUSHED, actions.get(ToggleSelectionOnlyAction.class).getPopState());
     assertFalse(actions.get(AddOccurrenceAction.class).isEnabled());
     assertFalse(actions.get(RemoveOccurrenceAction.class).isEnabled());
     ShortcutSet shortcuts = actions.get(ToggleSelectionOnlyAction.class).getAction().getShortcutSet();
-    assertEquals(ActionManager.getInstance().getAction(IdeActions.ACTION_FIND).getShortcutSet(), shortcuts);
+    assertEquals(ActionManager.getInstance().getAction(IdeActions.ACTION_TOGGLE_FIND_IN_SELECTION_ONLY).getShortcutSet(), shortcuts);
 
     model.setStringToFind("foo");
     assertEquals(ApplicationBundle.message("editorsearch.matches", 2), component.getStatusText());
@@ -100,6 +100,22 @@ public class FindInEditorFunctionalTest extends AbstractFindInEditorTest {
     assertEquals(ApplicationBundle.message("editorsearch.matches", 3), component.getStatusText());
     editor.getSelectionModel().removeSelection();
     assertEquals(ApplicationBundle.message("editorsearch.noselection"), component.getStatusText());
+
+    closeFind();
+    init(origText);
+    editor.getSelectionModel().removeSelection();
+    initFind();
+    session = getEditorSearchComponent();
+    model = session.getFindModel();
+    assertEquals("foo", model.getStringToFind());
+
+    closeFind();
+    init(origText);
+    initFind();
+    session = getEditorSearchComponent();
+    model = session.getFindModel();
+    assertEquals("foo bar baz\nbaz bar foo", editor.getSelectionModel().getSelectedText());
+    assertEquals(editor.getSelectionModel().getSelectedText(), model.getStringToFind());//Don't use multilite selection as string to find
   }
 
   public void testFindEmptyText() {
@@ -110,9 +126,16 @@ public class FindInEditorFunctionalTest extends AbstractFindInEditorTest {
     FindModel model = session.getFindModel();
     SearchReplaceComponent component = session.getComponent();
     model.setStringToFind("");
-    Shortcut shortcut = ArrayUtil.getFirstElement(ActionManager.getInstance().getAction(IdeActions.ACTION_FIND).getShortcutSet().getShortcuts());
-    assertEquals(ApplicationBundle.message("editorsearch.in.selection.with.hint", KeymapUtil.getShortcutText(shortcut)),
-                 ((ComponentWithEmptyText)component.getSearchTextComponent()).getEmptyText().getText());
+    model.setGlobal(false);
+    Shortcut shortcut = ArrayUtil.getFirstElement(ActionManager.getInstance().getAction(IdeActions.ACTION_TOGGLE_FIND_IN_SELECTION_ONLY).getShortcutSet().getShortcuts());
+    if (shortcut != null) {
+      assertEquals(ApplicationBundle.message("editorsearch.in.selection.with.hint", KeymapUtil.getShortcutText(shortcut)),
+                   ((ComponentWithEmptyText)component.getSearchTextComponent()).getEmptyText().getText());
+    } else {
+      assertEquals(ApplicationBundle.message("editorsearch.in.selection"),
+                   ((ComponentWithEmptyText)component.getSearchTextComponent()).getEmptyText().getText());
+
+    }
     getEditor().getSelectionModel().removeSelection();
     assertEquals(ApplicationBundle.message("editorsearch.in.selection"), ((ComponentWithEmptyText)component.getSearchTextComponent()).getEmptyText().getText());
   }
@@ -123,8 +146,19 @@ public class FindInEditorFunctionalTest extends AbstractFindInEditorTest {
     initFind();
     EditorSearchSession session = getEditorSearchComponent();
     FindModel model = session.getFindModel();
+    assertTrue(model.isGlobal());
+    assertEquals("foo bar baz\nbaz bar foo", model.getStringToFind());
+    model.setGlobal(false);
+    assertEquals("", model.getStringToFind());
+  }
+  public void testReplaceToggleInSelection() {
+    String origText = "first foo\n<selection>foo bar baz\nbaz bar foo</selection>\nlast foo";
+    init(origText);
+    initReplace();
+    EditorSearchSession session = getEditorSearchComponent();
+    FindModel model = session.getFindModel();
     assertFalse(model.isGlobal());
-    model.setStringToFind("");
+    assertEquals("", model.getStringToFind());
     model.setGlobal(true);
     assertEquals("foo bar baz\nbaz bar foo", model.getStringToFind());
     model.setGlobal(false);

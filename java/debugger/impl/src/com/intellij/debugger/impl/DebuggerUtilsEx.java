@@ -69,7 +69,7 @@ import java.util.function.Function;
 import java.util.regex.PatternSyntaxException;
 
 public abstract class DebuggerUtilsEx extends DebuggerUtils {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.DebuggerUtilsEx");
+  private static final Logger LOG = Logger.getInstance(DebuggerUtilsEx.class);
 
   /**
    * @param context
@@ -319,7 +319,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     if (suspendContext != null) {
       EventSet events = suspendContext.getEventSet();
       if (!ContainerUtil.isEmpty(events)) {
-        List<Pair<Breakpoint, Event>> eventDescriptors = ContainerUtil.newSmartList();
+        List<Pair<Breakpoint, Event>> eventDescriptors = new SmartList<>();
         for (Event event : events) {
           Requestor requestor = RequestManagerImpl.findRequestor(event.request());
           if (requestor instanceof Breakpoint) {
@@ -551,7 +551,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     try {
       return location.sourceName();
     }
-    catch (InternalError | AbsentInformationException e) {
+    catch (InternalError | AbsentInformationException | IllegalArgumentException e) {
       return defaultName.apply(e);
     }
   }

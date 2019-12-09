@@ -3,7 +3,9 @@ package com.intellij.codeInspection.dataFlow;
 
 import com.intellij.codeInsight.ExpressionUtil;
 import com.intellij.codeInsight.Nullability;
-import com.intellij.codeInspection.dataFlow.instructions.*;
+import com.intellij.codeInspection.dataFlow.instructions.AssignInstruction;
+import com.intellij.codeInspection.dataFlow.instructions.Instruction;
+import com.intellij.codeInspection.dataFlow.instructions.PushInstruction;
 import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
 import com.intellij.codeInspection.dataFlow.value.*;
 import com.intellij.openapi.util.MultiValuesMap;
@@ -20,7 +22,6 @@ import com.intellij.util.containers.FList;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import gnu.trove.THashSet;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -60,16 +61,6 @@ public class DfaUtil {
       RunnerResult runnerResult = new ValuableDataFlowRunner().analyzeMethod(codeBlock, visitor);
       return CachedValueProvider.Result.create(runnerResult == RunnerResult.OK ? visitor.myResults : null, codeBlock);
     });
-  }
-
-  /**
-   * @deprecated for removal; use {@link #checkNullability(PsiVariable, PsiElement)}
-   */
-  @ApiStatus.ScheduledForRemoval
-  @Deprecated
-  @NotNull
-  public static Nullness checkNullness(@Nullable final PsiVariable variable, @Nullable final PsiElement context) {
-    return Nullness.fromNullability(checkNullability(variable, context));
   }
 
   @NotNull
@@ -117,35 +108,6 @@ public class DfaUtil {
     return Collections.emptyList();
   }
 
-  @Nullable
-  static PsiElement getClosureInside(Instruction instruction) {
-    if (instruction instanceof MethodCallInstruction) {
-      PsiCall anchor = ((MethodCallInstruction)instruction).getCallExpression();
-      if (anchor instanceof PsiNewExpression) {
-        return ((PsiNewExpression)anchor).getAnonymousClass();
-      }
-    }
-    else if (instruction instanceof LambdaInstruction) {
-      return ((LambdaInstruction)instruction).getLambdaExpression();
-    }
-    else if (instruction instanceof EmptyInstruction) {
-      PsiElement anchor = ((EmptyInstruction)instruction).getAnchor();
-      if (anchor instanceof PsiClass) {
-        return anchor;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * @deprecated for removal; use {@link #inferMethodNullability(PsiMethod)}
-   */
-  @Deprecated
-  @NotNull
-  public static Nullness inferMethodNullity(PsiMethod method) {
-    return Nullness.fromNullability(inferMethodNullability(method));
-  }
-
   @NotNull
   public static Nullability inferMethodNullability(PsiMethod method) {
     if (PsiUtil.resolveClassInType(method.getReturnType()) == null) {
@@ -180,7 +142,7 @@ public class DfaUtil {
     PsiElement body = owner.getBody();
     if (body == null) return Nullability.UNKNOWN;
 
-    final StandardDataFlowRunner dfaRunner = new StandardDataFlowRunner();
+    final DataFlowRunner dfaRunner = new DataFlowRunner();
     class BlockNullabilityVisitor extends StandardInstructionVisitor {
       boolean hasNulls = false;
       boolean hasNotNulls = false;
@@ -325,7 +287,7 @@ public class DfaUtil {
 
   /**
    * Returns a surrounding PSI element which should be analyzed via DFA
-   * (e.g. passed to {@link DataFlowRunner#analyzeMethodRecursively(PsiElement, StandardInstructionVisitor, boolean)}) to cover 
+   * (e.g. passed to {@link DataFlowRunner#analyzeMethodRecursively(PsiElement, StandardInstructionVisitor)}) to cover 
    * given expression.
    *
    * @param expression expression to cover
@@ -389,7 +351,7 @@ public class DfaUtil {
     Object computed = ExpressionUtils.computeConstantExpression(expression);
     if (computed != null) return computed;
 
-    DataFlowRunner runner = new StandardDataFlowRunner(false, expression);
+    DataFlowRunner runner = new DataFlowRunner(expression);
     class Visitor extends StandardInstructionVisitor {
       Object exprValue;
 
@@ -437,13 +399,13 @@ public class DfaUtil {
       LongRangeSet fromAnnotation = LongRangeSet.fromPsiElement(parameter);
       if (fromAnnotation.min() > fromType.min()) {
         MethodContract contract = MethodContract.singleConditionContract(
-          ContractValue.argument(i), DfaRelationValue.RelationType.LT, ContractValue.constant(fromAnnotation.min(), PsiType.LONG),
+          ContractValue.argument(i), RelationType.LT, ContractValue.constant(fromAnnotation.min(), PsiType.LONG),
           ContractReturnValue.fail());
         rangeContracts.add(contract);
       }
       if (fromAnnotation.max() < fromType.max()) {
         MethodContract contract = MethodContract.singleConditionContract(
-          ContractValue.argument(i), DfaRelationValue.RelationType.GT, ContractValue.constant(fromAnnotation.max(), PsiType.LONG),
+          ContractValue.argument(i), RelationType.GT, ContractValue.constant(fromAnnotation.max(), PsiType.LONG),
           ContractReturnValue.fail());
         rangeContracts.add(contract);
       }
@@ -539,8 +501,7 @@ public class DfaUtil {
   }
 
   public static boolean isNaN(Object value) {
-    if (value instanceof Double && ((Double)value).isNaN()) return true;
-    if (value instanceof Float && ((Float)value).isNaN()) return true;
-    return false;
+    return value instanceof Double && ((Double)value).isNaN() || 
+           value instanceof Float && ((Float)value).isNaN();
   }
 }

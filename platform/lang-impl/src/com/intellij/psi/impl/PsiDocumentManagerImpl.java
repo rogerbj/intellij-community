@@ -8,6 +8,7 @@ import com.intellij.lang.ASTNode;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -19,7 +20,6 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectLocator;
 import com.intellij.openapi.project.impl.ProjectImpl;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
@@ -58,7 +58,6 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
         fireDocumentCreated(document, psiFile);
       }
     });
-    Disposer.register(this, () -> ((DocumentCommitThread)myDocumentCommitProcessor).cancelTasksOnProjectDispose(project));
   }
 
   @Nullable
@@ -148,7 +147,7 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   @TestOnly
   public void clearUncommittedDocuments() {
     super.clearUncommittedDocuments();
-    ((DocumentCommitThread)myDocumentCommitProcessor).clearQueue();
+    NonBlockingReadActionImpl.cancelAllTasks();
   }
 
   @NotNull

@@ -33,6 +33,7 @@ import git4idea.repo.GitRepository;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -72,8 +73,12 @@ public final class GitBranchWorker {
   }
 
   public void createBranch(@NotNull String name, @NotNull Map<GitRepository, String> startPoints) {
+    createBranch(name, startPoints, false);
+  }
+
+  public void createBranch(@NotNull String name, @NotNull Map<GitRepository, String> startPoints, boolean force) {
     updateInfo(startPoints.keySet());
-    new GitCreateBranchOperation(myProject, myGit, myUiHandler, name, startPoints).execute();
+    new GitCreateBranchOperation(myProject, myGit, myUiHandler, name, startPoints, force).execute();
   }
 
   public void createNewTag(@NotNull String name, @NotNull String reference, @NotNull List<? extends GitRepository> repositories) {
@@ -90,13 +95,18 @@ public final class GitBranchWorker {
 
   public void checkoutNewBranchStartingFrom(@NotNull String newBranchName, @NotNull String startPoint,
                                             @NotNull List<? extends GitRepository> repositories) {
+    checkoutNewBranchStartingFrom(newBranchName, startPoint, false, repositories);
+  }
+
+  public void checkoutNewBranchStartingFrom(@NotNull String newBranchName, @NotNull String startPoint, boolean overwriteIfNeeded,
+                                            @NotNull List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    new GitCheckoutOperation(myProject, myGit, myUiHandler, repositories, startPoint, false, true, newBranchName).execute();
+    new GitCheckoutOperation(myProject, myGit, myUiHandler, repositories, startPoint, false, overwriteIfNeeded, true, newBranchName).execute();
   }
 
   public void checkout(@NotNull final String reference, boolean detach, @NotNull List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    new GitCheckoutOperation(myProject, myGit, myUiHandler, repositories, reference, detach, false, null).execute();
+    new GitCheckoutOperation(myProject, myGit, myUiHandler, repositories, reference, detach, false, false, null).execute();
   }
 
 
@@ -116,8 +126,12 @@ public final class GitBranchWorker {
   }
 
   public void deleteRemoteBranch(@NotNull final String branchName, @NotNull final List<? extends GitRepository> repositories) {
+    deleteRemoteBranches(Collections.singletonList(branchName), repositories);
+  }
+
+  public void deleteRemoteBranches(@NotNull List<String> branchNames, @NotNull List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    new GitDeleteRemoteBranchOperation(myProject, myGit, myUiHandler, repositories, branchName).execute();
+    new GitDeleteRemoteBranchOperation(myProject, myGit, myUiHandler, repositories, branchNames).execute();
   }
 
   public void merge(@NotNull final String branchName, @NotNull final GitBrancher.DeleteOnMergeOption deleteOnMerge,
@@ -132,8 +146,12 @@ public final class GitBranchWorker {
   }
 
   public void rebaseOnCurrent(@NotNull List<? extends GitRepository> repositories, @NotNull String branchName) {
+    rebase(repositories, "HEAD", branchName);
+  }
+
+  public void rebase(@NotNull List<? extends GitRepository> repositories, @NotNull String upstream, @NotNull String branchName) {
     updateInfo(repositories);
-    GitRebaseUtils.rebase(myProject, repositories, new GitRebaseParams(myVcs.getVersion(), branchName, null, "HEAD", false, false),
+    GitRebaseUtils.rebase(myProject, repositories, new GitRebaseParams(myVcs.getVersion(), branchName, null, upstream, false, false),
                           myUiHandler.getProgressIndicator());
   }
 

@@ -102,11 +102,22 @@ public final class EditorColorsManagerImpl extends EditorColorsManager implement
       }
 
       @Override
-      public void onCurrentSchemeSwitched(@Nullable EditorColorsScheme oldScheme, @Nullable EditorColorsScheme newScheme) {
-        ApplicationManager.getApplication().invokeLater(() -> { // don't do heavy operations right away
-          LafManager.getInstance().updateUI();
-          schemeChangedOrSwitched(newScheme);
-        });
+      public void onCurrentSchemeSwitched(@Nullable EditorColorsScheme oldScheme,
+                                          @Nullable EditorColorsScheme newScheme,
+                                          boolean processChangeSynchronously) {
+        if (processChangeSynchronously) {
+          handleCurrentSchemeSwitched(newScheme);
+        }
+        else {
+          ApplicationManager.getApplication().invokeLater(() -> { // don't do heavy operations right away
+            handleCurrentSchemeSwitched(newScheme);
+          });
+        }
+      }
+
+      private void handleCurrentSchemeSwitched(@Nullable EditorColorsScheme newScheme) {
+        LafManager.getInstance().updateUI();
+        schemeChangedOrSwitched(newScheme);
       }
 
       @NotNull
@@ -277,11 +288,25 @@ public final class EditorColorsManagerImpl extends EditorColorsManager implement
     myTreeDispatcher.getMulticaster().globalSchemeChange(newScheme);
   }
 
-  public void handleThemeAdded(UITheme theme) {
+  public void handleThemeAdded(@NotNull UITheme theme) {
     String editorScheme = theme.getEditorScheme();
     if (editorScheme != null) {
       getSchemeManager().loadBundledScheme(editorScheme, theme);
       initEditableBundledSchemesCopies();
+    }
+  }
+
+  public void handleThemeRemoved(@NotNull UITheme theme) {
+    String editorSchemeName = theme.getEditorSchemeName();
+    if (editorSchemeName != null) {
+      EditorColorsScheme scheme = mySchemeManager.findSchemeByName(editorSchemeName);
+      if (scheme != null) {
+        mySchemeManager.removeScheme(scheme);
+        String editableCopyName = getEditableCopyName(scheme);
+        if (editableCopyName != null) {
+          mySchemeManager.removeScheme(editableCopyName);
+        }
+      }
     }
   }
 
@@ -376,8 +401,12 @@ public final class EditorColorsManagerImpl extends EditorColorsManager implement
 
   @Override
   public void setGlobalScheme(@Nullable EditorColorsScheme scheme) {
+    setGlobalScheme(scheme, false);
+  }
+
+  public void setGlobalScheme(@Nullable EditorColorsScheme scheme, boolean processChangeSynchronously) {
     boolean notify = LoadingState.COMPONENTS_LOADED.isOccurred();
-    mySchemeManager.setCurrent(scheme == null ? getDefaultScheme() : scheme, notify);
+    mySchemeManager.setCurrent(scheme == null ? getDefaultScheme() : scheme, notify, processChangeSynchronously);
   }
 
   private void setGlobalSchemeInner(@Nullable EditorColorsScheme scheme) {

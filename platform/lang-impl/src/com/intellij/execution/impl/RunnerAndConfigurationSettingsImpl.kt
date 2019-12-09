@@ -14,6 +14,7 @@ import com.intellij.execution.configurations.*
 import com.intellij.execution.executors.DefaultRunExecutor
 import com.intellij.execution.runners.ProgramRunner
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.impl.ProjectPathMacroManager
@@ -50,10 +51,13 @@ enum class RunConfigurationLevel {
   WORKSPACE, PROJECT, TEMPORARY
 }
 
-class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: RunManagerImpl,
-                                                                   private var _configuration: RunConfiguration? = null,
-                                                                   private var isTemplate: Boolean = false,
-                                                                   var level: RunConfigurationLevel = RunConfigurationLevel.WORKSPACE) : Cloneable, RunnerAndConfigurationSettings, Comparable<Any>, SerializableScheme {
+class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(
+  val manager: RunManagerImpl,
+  private var _configuration: RunConfiguration? = null,
+  private var isTemplate: Boolean = false,
+  var level: RunConfigurationLevel = RunConfigurationLevel.WORKSPACE
+) : Cloneable, RunnerAndConfigurationSettings, Comparable<Any>, SerializableScheme {
+
   @Deprecated("isSingleton parameter removed", level = DeprecationLevel.ERROR)
   @Suppress("UNUSED_PARAMETER")
   constructor(manager: RunManagerImpl, configuration: RunConfiguration, isTemplate: Boolean, isSingleton: Boolean) : this(manager, configuration, isTemplate)
@@ -114,6 +118,10 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
   }
 
   override fun getConfiguration() = _configuration ?: UnknownConfigurationType.getInstance().createTemplateConfiguration(manager.project)
+
+  fun setConfiguration(configuration: RunConfiguration?) {
+    _configuration = configuration
+  }
 
   override fun createFactory(): Factory<RunnerAndConfigurationSettings> {
     return Factory {
@@ -311,7 +319,7 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
     val configuration = configuration
     var warning: RuntimeConfigurationWarning?
 
-    warning = doCheck { configuration.checkConfiguration() }
+    warning = doCheck { runReadAction { configuration.checkConfiguration() } }
     if (configuration !is RunConfigurationBase<*>) {
       if (warning != null) {
         throw warning
@@ -320,13 +328,13 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
     }
 
     val runners = THashSet<ProgramRunner<*>>()
-    runners.addAll(runnerSettings.settings.keys)
-    runners.addAll(configurationPerRunnerSettings.settings.keys)
+    runners.addAll(runnerSettings.settings.keys.mapNotNull { ProgramRunner.findRunnerById(it) })
+    runners.addAll(configurationPerRunnerSettings.settings.keys.mapNotNull { ProgramRunner.findRunnerById(it) })
     executor?.let { ProgramRunner.getRunner(executor.id, configuration)?.let { runners.add(it) } }
     var runnerFound = false
     for (runner in runners) {
       if (executor == null || runner.canRun(executor.id, configuration)) {
-        val runnerWarning = doCheck { configuration.checkRunnerSettings(runner, runnerSettings.settings[runner], configurationPerRunnerSettings.settings[runner]) }
+        val runnerWarning = doCheck { configuration.checkRunnerSettings(runner, runnerSettings.settings[runner.runnerId], configurationPerRunnerSettings.settings[runner.runnerId]) }
         if (runnerWarning != null) {
           if (warning == null) warning = runnerWarning
         } else {
@@ -356,7 +364,10 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
     }
   }
 
-  override fun getRunnerSettings(runner: ProgramRunner<*>) = runnerSettings.getOrCreateSettings(runner)
+  override fun <T : RunnerSettings> getRunnerSettings(runner: ProgramRunner<T>): T? {
+    @Suppress("UNCHECKED_CAST")
+    return runnerSettings.getOrCreateSettings(runner) as T?
+  }
 
   override fun getConfigurationSettings(runner: ProgramRunner<*>) = configurationPerRunnerSettings.getOrCreateSettings(runner)
 
@@ -378,15 +389,16 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
   }
 
   private fun <T> importFromTemplate(templateItem: RunnerItem<T>, item: RunnerItem<T>) {
-    for (runner in templateItem.settings.keys) {
+    for (runnerId in templateItem.settings.keys) {
+      val runner = ProgramRunner.findRunnerById(runnerId) ?: continue
       val data = item.createSettings(runner)
-      item.settings.put(runner, data)
+      item.settings.put(runnerId, data)
       if (data == null) {
         continue
       }
 
       val temp = Element(DUMMY_ELEMENT_NAME)
-      val templateSettings = templateItem.settings.get(runner) ?: continue
+      val templateSettings = templateItem.settings.get(runnerId) ?: continue
       try {
         @Suppress("DEPRECATION")
         (templateSettings as JDOMExternalizable).writeExternal(temp)
@@ -400,6 +412,10 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
         RunManagerImpl.LOG.error(e)
       }
     }
+  }
+
+  fun handleRunnerRemoved(runner: ProgramRunner<*>) {
+    runnerSettings.handleRunnerRemoved(runner)
   }
 
   override fun compareTo(other: Any) = if (other is RunnerAndConfigurationSettings) name.compareTo(other.name) else 0
@@ -430,7 +446,7 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
   fun needsToBeMigrated(): Boolean = (_configuration as? PersistentAwareRunConfiguration)?.needsToBeMigrated() ?: false
 
   private abstract inner class RunnerItem<T>(private val childTagName: String) {
-    val settings = THashMap<ProgramRunner<*>, T>()
+    val settings = THashMap<String, T>()
 
     private var unloadedSettings: MutableList<Element>? = null
     // to avoid changed files
@@ -446,7 +462,7 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
       val iterator = element.getChildren(childTagName).iterator()
       while (iterator.hasNext()) {
         val state = iterator.next()
-        val runner = findRunner(state.getAttributeValue(RUNNER_ID))
+        val runner = state.getAttributeValue(RUNNER_ID)?.let { findRunner(it) }
         if (runner == null) {
           iterator.remove()
         }
@@ -456,7 +472,7 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
     }
 
     private fun findRunner(runnerId: String): ProgramRunner<*>? {
-      val runnersById = ProgramRunner.PROGRAM_RUNNER_EP.extensionList.filter { runnerId == it.runnerId }
+      val runnersById = ProgramRunner.PROGRAM_RUNNER_EP.iterable.filter { runnerId == it.runnerId }
       return when {
         runnersById.isEmpty() -> null
         runnersById.size == 1 -> runnersById.firstOrNull()
@@ -474,9 +490,9 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
 
     fun getState(element: Element) {
       val runnerSettings = SmartList<Element>()
-      for (runner in settings.keys) {
-        val settings = this.settings.get(runner)
-        val wasLoaded = loadedIds.contains(runner.runnerId)
+      for (runnerId in settings.keys) {
+        val settings = this.settings.get(runnerId)
+        val wasLoaded = loadedIds.contains(runnerId)
         if (settings == null && !wasLoaded) {
           continue
         }
@@ -487,7 +503,7 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
           (settings as JDOMExternalizable).writeExternal(state)
         }
         if (wasLoaded || !JDOMUtil.isEmpty(state)) {
-          state.setAttribute(RUNNER_ID, runner.runnerId)
+          state.setAttribute(RUNNER_ID, runnerId)
           runnerSettings.add(state)
         }
       }
@@ -506,7 +522,7 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
     private fun add(state: Element, runner: ProgramRunner<*>?, data: T?) {
       if (runner == null) {
         if (unloadedSettings == null) {
-          unloadedSettings = SmartList<Element>()
+          unloadedSettings = SmartList()
         }
         unloadedSettings!!.add(JDOMUtil.internElement(state))
         return
@@ -517,17 +533,31 @@ class RunnerAndConfigurationSettingsImpl @JvmOverloads constructor(val manager: 
         (data as JDOMExternalizable).readExternal(state)
       }
 
-      settings.put(runner, data)
+      settings.put(runner.runnerId, data)
       loadedIds.add(runner.runnerId)
     }
 
     fun getOrCreateSettings(runner: ProgramRunner<*>): T? {
       try {
-        return settings.getOrPut(runner) { createSettings(runner) }
+        return settings.getOrPut(runner.runnerId) { createSettings(runner) }
       }
       catch (e: AbstractMethodError) {
         PluginException.logPluginError(RunManagerImpl.LOG, "Update failed for: ${configuration.type.displayName}, runner: ${runner.runnerId}", e, runner.javaClass)
         return null
+      }
+    }
+
+    fun handleRunnerRemoved(runner: ProgramRunner<*>) {
+      val runnerSettings = settings[runner.runnerId] as RunnerSettings?
+      if (runnerSettings != null) {
+        settings.remove(runner.runnerId)
+        val element = Element(childTagName)
+        runnerSettings.writeExternal(element)
+        if (unloadedSettings == null) {
+          unloadedSettings = SmartList()
+        }
+        unloadedSettings!!.add(JDOMUtil.internElement(element))
+        loadedIds.remove(runner.runnerId)
       }
     }
   }

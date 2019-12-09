@@ -25,6 +25,7 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.*;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.UniqueNameGenerator;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
@@ -38,7 +39,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class GenerateMembersUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateMembersUtil");
+  private static final Logger LOG = Logger.getInstance(GenerateMembersUtil.class);
 
   private GenerateMembersUtil() {
   }
@@ -424,8 +425,7 @@ public class GenerateMembersUtil {
         isBaseNameGenerated = false;
       }
 
-      if (paramName == null ||
-          isBaseNameGenerated && !isSubstituted && isBaseNameGenerated(codeStyleManager, parameterType, paramName) ||
+      if (isBaseNameGenerated && !isSubstituted && isBaseNameGenerated(codeStyleManager, parameterType, paramName) ||
           !factory.isValidParameterName(paramName)) {
         String[] names = codeStyleManager.suggestVariableName(VariableKind.PARAMETER, null, null, substituted).names;
         if (names.length > 0) {
@@ -468,7 +468,7 @@ public class GenerateMembersUtil {
     }
     final PsiParameter[] sourceParameters = source.getParameterList().getParameters();
     final PsiParameterList targetParameterList = target.getParameterList();
-    RefactoringUtil.fixJavadocsForParams(target, new HashSet<>(Arrays.asList(targetParameterList.getParameters())), pair -> {
+    RefactoringUtil.fixJavadocsForParams(target, ContainerUtil.set(targetParameterList.getParameters()), pair -> {
       final int parameterIndex = targetParameterList.getParameterIndex(pair.first);
       if (parameterIndex >= 0 && parameterIndex < sourceParameters.length) {
         return Comparing.strEqual(pair.second, sourceParameters[parameterIndex].getName());

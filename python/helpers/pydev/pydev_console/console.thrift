@@ -1,6 +1,10 @@
 namespace java com.jetbrains.python.console.protocol
 
 /**
+*  Script for Java classes generation: /community/python/thrift/console-compile.sh
+*/
+
+/**
  * `com.jetbrains.python.console.PydevConsoleCommunication`
  */
 
@@ -13,9 +17,10 @@ struct DebugValue {
   3: string qualifier,
   4: string value,
   5: bool isContainer,
-  6: bool isReturnedValue,
-  7: bool isIPythonHidden,
-  8: bool isErrorOnEval,
+  6: string shape,
+  7: bool isReturnedValue,
+  8: bool isIPythonHidden,
+  9: bool isErrorOnEval,
 }
 
 typedef list<DebugValue> GetFrameResponse
@@ -102,7 +107,7 @@ struct CompletionOption {
   4: CompletionOptionType type,
 }
 
-typedef list<CompletionOption> GetCompletionsReponse
+typedef list<CompletionOption> GetCompletionsResponse
 
 typedef string AttributeDescription
 
@@ -110,6 +115,10 @@ typedef list<DebugValue> DebugValues
 
 exception UnsupportedArrayTypeException {
   1: string type,
+}
+
+exception PythonUnhandledException {
+  1: string traceback,
 }
 
 /**
@@ -131,7 +140,7 @@ service PythonConsoleBackendService {
    */
   bool execMultipleLines(1: string lines),
 
-  GetCompletionsReponse getCompletions(1: string text, 2: string actTok),
+  GetCompletionsResponse getCompletions(1: string text, 2: string actTok) throws (1: PythonUnhandledException unhandledException),
 
   /**
    * The description of the given attribute in the shell.

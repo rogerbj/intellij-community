@@ -40,7 +40,7 @@ public class PersistentHashMap<Key, Value> extends PersistentEnumeratorDelegate<
   // key enumeration is <enumerated_id>? [.values file offset 4 or 8 bytes], however for unique integral keys enumerate_id isn't produced.
   // Also for certain Value types it is possible to avoid random reads at all: e.g. in case Value is non-negative integer the value can be stored
   // directly in storage used for offset and in case of btree enumerator directly in btree leaf.
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.io.PersistentHashMap");
+  private static final Logger LOG = Logger.getInstance(PersistentHashMap.class);
   private static final boolean myDoTrace = SystemProperties.getBooleanProperty("idea.trace.persistent.map", false);
   private static final int DEAD_KEY_NUMBER_MASK = 0xFFFFFFFF;
 
@@ -252,7 +252,44 @@ public class PersistentHashMap<Key, Value> extends PersistentEnumeratorDelegate<
 
       @Override
       protected void onDropFromCache(final Key key, @NotNull final BufferExposingByteArrayOutputStream bytes) {
-        appendDataWithoutCache(key, bytes);
+        myEnumerator.lockStorage();
+        try {
+          long previousRecord;
+          final int id;
+          if (myDirectlyStoreLongFileOffsetMode) {
+            previousRecord = ((PersistentBTreeEnumerator<Key>)myEnumerator).getNonNegativeValue(key);
+            id = -1;
+          }
+          else {
+            id = enumerate(key);
+            previousRecord = readValueId(id);
+          }
+
+          long headerRecord = myValueStorage.appendBytes(bytes.toByteArraySequence(), previousRecord);
+
+          if (myDirectlyStoreLongFileOffsetMode) {
+            ((PersistentBTreeEnumerator<Key>)myEnumerator).putNonNegativeValue(key, headerRecord);
+          }
+          else {
+            updateValueId(id, headerRecord, previousRecord, key, 0);
+          }
+
+          if (previousRecord == NULL_ADDR) {
+            myLiveAndGarbageKeysCounter += LIVE_KEY_MASK;
+          }
+
+          if (bytes.getInternalBuffer().length <= MAX_RECYCLED_BUFFER_SIZE) {
+            // Avoid internal fragmentation by not retaining / reusing large append buffers (IDEA-208533)
+            myStreamPool.recycle(bytes);
+          }
+        }
+        catch (IOException e) {
+          markCorrupted();
+          throw new RuntimeException(e);
+        }
+        finally {
+          myEnumerator.unlockStorage();
+        }
       }
     };
   }
@@ -430,47 +467,6 @@ public class PersistentHashMap<Key, Value> extends PersistentEnumeratorDelegate<
         myEnumerator.markCorrupted();
         throw ex;
       }
-    }
-  }
-
-  protected void appendDataWithoutCache(Key key, @NotNull final BufferExposingByteArrayOutputStream bytes) {
-    myEnumerator.lockStorage();
-    try {
-      long previousRecord;
-      final int id;
-      if (myDirectlyStoreLongFileOffsetMode) {
-        previousRecord = ((PersistentBTreeEnumerator<Key>)myEnumerator).getNonNegativeValue(key);
-        id = -1;
-      }
-      else {
-        id = enumerate(key);
-        previousRecord = readValueId(id);
-      }
-
-      long headerRecord = myValueStorage.appendBytes(bytes.toByteArraySequence(), previousRecord);
-
-      if (myDirectlyStoreLongFileOffsetMode) {
-        ((PersistentBTreeEnumerator<Key>)myEnumerator).putNonNegativeValue(key, headerRecord);
-      }
-      else {
-        updateValueId(id, headerRecord, previousRecord, key, 0);
-      }
-
-      if (previousRecord == NULL_ADDR) {
-        myLiveAndGarbageKeysCounter += LIVE_KEY_MASK;
-      }
-
-      if (bytes.getInternalBuffer().length <= MAX_RECYCLED_BUFFER_SIZE) {
-        // Avoid internal fragmentation by not retaining / reusing large append buffers (IDEA-208533)
-        myStreamPool.recycle(bytes);
-      }
-    }
-    catch (IOException e) {
-      markCorrupted();
-      throw new RuntimeException(e);
-    }
-    finally {
-      myEnumerator.unlockStorage();
     }
   }
 

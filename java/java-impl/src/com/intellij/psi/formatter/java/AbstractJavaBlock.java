@@ -3,7 +3,6 @@ package com.intellij.psi.formatter.java;
 
 import com.intellij.formatting.*;
 import com.intellij.formatting.alignment.AlignmentStrategy;
-import com.intellij.formatting.blocks.CStyleCommentBlock;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.TextRange;
@@ -38,7 +37,7 @@ import static com.intellij.psi.formatter.java.JavaFormatterUtil.getWrapType;
 import static com.intellij.psi.formatter.java.MultipleFieldDeclarationHelper.findLastFieldInGroup;
 
 public abstract class AbstractJavaBlock extends AbstractBlock implements JavaBlock, ReservedWrapsProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.formatter.java.AbstractJavaBlock");
+  private static final Logger LOG = Logger.getInstance(AbstractJavaBlock.class);
 
   @NotNull protected final CommonCodeStyleSettings mySettings;
   @NotNull protected final JavaCodeStyleSettings myJavaSettings;

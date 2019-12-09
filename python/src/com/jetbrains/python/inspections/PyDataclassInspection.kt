@@ -109,7 +109,10 @@ class PyDataclassInspection : PyInspection() {
 
           PyNamedTupleInspection.inspectFieldsOrder(
             node,
-            { parseDataclassParameters(it, myTypeEvalContext) != null },
+            {
+              val parameters = parseDataclassParameters(it, myTypeEvalContext)
+              parameters != null && !parameters.kwOnly
+            },
             dataclassParameters.type == PyDataclassParameters.Type.STD,
             myTypeEvalContext,
             this::registerProblem,
@@ -182,7 +185,7 @@ class PyDataclassInspection : PyInspection() {
       super.visitPyCallExpression(node)
 
       if (node != null) {
-        val resolveContext = PyResolveContext.noImplicits().withTypeEvalContext(myTypeEvalContext)
+        val resolveContext = PyResolveContext.defaultContext().withTypeEvalContext(myTypeEvalContext)
         val markedCallee = node.multiResolveCallee(resolveContext).singleOrNull()
         val callee = markedCallee?.element
         val calleeQName = callee?.qualifiedName
@@ -386,7 +389,7 @@ class PyDataclassInspection : PyInspection() {
       }
 
       if (dataclassParameters.order && cmpMethods.isNotEmpty()) {
-        cmpMethods.forEach { problems.add(it to "cmp") }
+        cmpMethods.forEach { problems.add(it to "cmp/order") }
       }
 
       if (dataclassParameters.frozen && mutatingMethods.isNotEmpty()) {
@@ -407,7 +410,7 @@ class PyDataclassInspection : PyInspection() {
 
       if (dataclassParameters.order && dataclassParameters.frozen && hashMethod != null) {
         registerProblem(hashMethod?.nameIdentifier,
-                        "'${PyNames.HASH}' is ignored if the class already defines 'cmp' and 'frozen' parameters",
+                        "'${PyNames.HASH}' is ignored if the class already defines 'cmp/order' and 'frozen' parameters",
                         ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
       }
     }
@@ -525,8 +528,7 @@ class PyDataclassInspection : PyInspection() {
                 val default = call.getKeywordArgument("default")
                 val factory = call.getKeywordArgument("factory")
 
-                if (default != null && factory != null && !resolvesToOmittedDefault(default,
-                                                                                    PyDataclassParameters.Type.ATTRS)) {
+                if (default != null && factory != null && !resolvesToOmittedDefault(default, PyDataclassParameters.Type.ATTRS)) {
                   registerProblem(call.argumentList, "Cannot specify both 'default' and 'factory'", ProblemHighlightType.GENERIC_ERROR)
                 }
               }

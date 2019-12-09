@@ -4,6 +4,7 @@ package com.intellij.openapi.fileEditor.impl;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
+import com.intellij.notebook.editor.BackedVirtualFile;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.actionSystem.DataProvider;
@@ -51,7 +52,7 @@ import static com.intellij.openapi.wm.IdeFocusManager.getGlobalInstance;
  * Author: msk
  */
 public class EditorWindow {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.fileEditor.impl.EditorWindow");
+  private static final Logger LOG = Logger.getInstance(EditorWindow.class);
 
   public static final DataKey<EditorWindow> DATA_KEY = DataKey.create("editorWindow");
 
@@ -75,6 +76,7 @@ public class EditorWindow {
     myOwner = owner;
     myPanel = new JPanel(new BorderLayout());
     myPanel.setOpaque(false);
+    myPanel.setFocusable(false);
 
     myTabbedPane = new EditorTabbedContainer(this, getManager().getProject(), myOwner);
     myPanel.add(myTabbedPane.getComponent(), BorderLayout.CENTER);
@@ -392,7 +394,7 @@ public class EditorWindow {
         public void focusGained(FocusEvent e) {
           ApplicationManager.getApplication().invokeLater(() -> {
             if (!hasFocus()) return;
-            final JComponent focus = myEditor.getSelectedEditorWithProvider().getFirst().getPreferredFocusedComponent();
+            final JComponent focus = myEditor.getSelectedWithProvider().getFileEditor().getPreferredFocusedComponent();
             if (focus != null && !focus.hasFocus()) {
               getGlobalInstance().requestFocus(focus, true);
             }
@@ -450,6 +452,7 @@ public class EditorWindow {
     LOG.assertTrue(myOwner.containsWindow(this), "EditorWindow not in collection");
   }
 
+  @Nullable
   public EditorWithProviderComposite getSelectedEditor() {
     return getSelectedEditor(false);
   }
@@ -458,14 +461,13 @@ public class EditorWindow {
    * @param ignorePopup if <code>false</code> and context menu is shown currently for some tab,
    *                    editor for which menu is invoked will be returned
    */
+  @Nullable
   public EditorWithProviderComposite getSelectedEditor(boolean ignorePopup) {
-    final TComp comp = ObjectUtils.tryCast(myTabbedPane.getSelectedComponent(ignorePopup), TComp.class);
-    if (comp != null) {
-      return comp.myEditor;
-    }
-    return null;
+    TComp comp = ObjectUtils.tryCast(myTabbedPane.getSelectedComponent(ignorePopup), TComp.class);
+    return comp == null ? null : comp.myEditor;
   }
 
+  @NotNull
   public EditorWithProviderComposite[] getEditors() {
     final int tabCount = getTabCount();
     final EditorWithProviderComposite[] res = new EditorWithProviderComposite[tabCount];
@@ -475,6 +477,7 @@ public class EditorWindow {
     return res;
   }
 
+  @NotNull
   public VirtualFile[] getFiles() {
     final int tabCount = getTabCount();
     final VirtualFile[] res = new VirtualFile[tabCount];
@@ -827,7 +830,10 @@ public class EditorWindow {
   }
 
   @Nullable
-  public EditorWithProviderComposite findFileComposite(final VirtualFile file) {
+  public EditorWithProviderComposite findFileComposite(VirtualFile file) {
+    if (file instanceof BackedVirtualFile)
+      file = ((BackedVirtualFile)file).getOriginFile();
+
     for (int i = 0; i != getTabCount(); ++i) {
       final EditorWithProviderComposite editor = getEditorAt(i);
       if (editor.getFile().equals(file)) {

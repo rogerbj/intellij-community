@@ -10,6 +10,7 @@ import com.intellij.psi.util.parentOfType
 import org.jetbrains.plugins.groovy.intentions.style.inference.driver.getJavaLangObject
 import org.jetbrains.plugins.groovy.intentions.style.inference.graph.InferenceUnitNode
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
+import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrConstructorInvocation
@@ -95,7 +96,13 @@ fun PsiType.forceWildcardsAsTypeArguments(): PsiType {
           else -> PsiWildcardType.createUnbounded(manager)
         }
       }
-      return factory.createType(classType.resolve()!!, *mappedParameters.toTypedArray())
+      val resolvedClass = classType.resolve()
+      if (resolvedClass != null) {
+        return factory.createType(resolvedClass, *mappedParameters.toTypedArray())
+      }
+      else {
+        return PsiWildcardType.createUnbounded(manager)
+      }
     }
 
   })
@@ -165,7 +172,7 @@ fun findOverridableMethod(method: GrMethod): PsiMethod? {
 
 private fun methodsAgree(pattern: PsiMethod,
                          tested: GrMethod): Boolean {
-  if (tested.parameterList.parametersCount != pattern.parameterList.parametersCount) {
+  if (pattern.name != tested.name || tested.parameterList.parametersCount != pattern.parameterList.parametersCount) {
     return false
   }
   val parameterList = pattern.parameters.zip(tested.parameters)
@@ -224,22 +231,24 @@ fun PsiSubstitutor.removeForeignTypeParameters(method: GrMethod): PsiSubstitutor
   val substitutions = mutableListOf<PsiType>()
   val allowedTypeParameters = method.typeParameters.asList()
   val factory = GroovyPsiElementFactory.getInstance(method.project)
+  val unboundedWildcard = PsiWildcardType.createUnbounded(method.manager)
 
   class ForeignTypeParameterEraser : PsiTypeMapper() {
     override fun visitClassType(classType: PsiClassType?): PsiType? {
       classType ?: return classType
       val typeParameter = classType.typeParameter()
       if (typeParameter != null && typeParameter !in allowedTypeParameters) {
-        return (compress(typeParameter.extendsListTypes.asList()) ?: getJavaLangObject(method))
-          .accept(this)
+        return (compress(typeParameter.extendsListTypes.asList()) ?: getJavaLangObject(method)).accept(this)
       }
       else {
-        return factory.createType(classType.resolve() ?: return null, *classType.parameters.map { it.accept(this) }.toTypedArray())
+        val resolvedClass = classType.resolve() ?: return null
+        val classParameters = classType.parameters.map { it?.accept(this) ?: unboundedWildcard }.toTypedArray()
+        return factory.createType(resolvedClass, *classParameters)
       }
     }
 
     override fun visitIntersectionType(intersectionType: PsiIntersectionType?): PsiType? {
-      return compress(intersectionType?.conjuncts?.filterNotNull()?.map { it.accept(this) })
+      return compress(intersectionType?.conjuncts?.filterNotNull()?.mapNotNull { it.accept(this) })
     }
 
     override fun visitWildcardType(wildcardType: PsiWildcardType?): PsiType? {
@@ -303,12 +312,10 @@ fun PsiElement.properResolve(): GroovyResolveResult? {
 
 @Suppress("RemoveExplicitTypeArguments")
 internal fun getOriginalMethod(method: GrMethod): GrMethod {
-  return method.containingFile?.originalFile?.run {
-    if (method.containingFile == this) {
-      method
+  return when (val originalFile = method.containingFile?.originalFile) {
+      null -> method
+      method.containingFile -> method
+      is GroovyFileBase -> originalFile.methods.find { methodsAgree(it, method) } ?: method
+      else -> originalFile.findElementAt(method.textOffset)?.parentOfType<GrMethod>()?.takeIf { it.name == method.name } ?: method
     }
-    else {
-      findElementAt(method.textOffset)?.parentOfType<GrMethod>() ?: method
-    }
-  } ?: method
 }

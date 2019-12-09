@@ -174,13 +174,13 @@ public class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
     final Set<PsiFile> outInjected = new THashSet<>();
     final PsiLanguageInjectionHost.InjectedPsiVisitor visitor = (injectedPsi, places) -> {
       synchronized (outInjected) {
+        ProgressManager.checkCanceled();
         outInjected.add(injectedPsi);
       }
     };
     if (!JobLauncher.getInstance().invokeConcurrentlyUnderProgress(new ArrayList<>(hosts), progress, 
                                                                    element -> {
                                                                      ApplicationManager.getApplication().assertReadAccessAllowed();
-                                                                     ProgressManager.checkCanceled();
                                                                      InjectedLanguageManager.getInstance(myFile.getProject()).enumerateEx(
                                                                        element, myFile, false, visitor);
                                                                      return true;
@@ -188,7 +188,7 @@ public class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
       throw new ProcessCanceledException();
     }
     synchronized (outInjected) {
-      return outInjected;
+      return outInjected.isEmpty() ? Collections.emptySet() : new THashSet<>(outInjected);
     }
   }
 
@@ -204,6 +204,12 @@ public class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
       .invokeConcurrentlyUnderProgress(new ArrayList<>(injectedFiles), progress,
                                        injectedPsi -> addInjectedPsiHighlights(injectedPsi, injectedAttributes, outInfos,
                                                                                injectedLanguageManager));
+  }
+
+  @Override
+  protected void queueInfoToUpdateIncrementally(@NotNull HighlightInfo info) {
+    // do not send info to highlight immediately - we need to convert its offsets first
+    // see addPatchedInfos()
   }
 
   private boolean addInjectedPsiHighlights(@NotNull PsiFile injectedPsi,
@@ -256,7 +262,7 @@ public class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
                             info.type, fixedTextRange.getStartOffset(),
                             fixedTextRange.getEndOffset(),
                             info.getDescription(), info.getToolTip(), info.type.getSeverity(null),
-                            info.isAfterEndOfLine(), null, false, 0, info.getProblemGroup(), info.getInspectionToolId(), info.getGutterIconRenderer());
+                            info.isAfterEndOfLine(), null, false, 0, info.getProblemGroup(), info.getInspectionToolId(), info.getGutterIconRenderer(), info.getGroup());
         patched.setFromInjection(true);
         outInfos.add(patched);
       }
@@ -319,7 +325,7 @@ public class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
         new HighlightInfo(info.forcedTextAttributes, info.forcedTextAttributesKey, info.type,
                           hostRange.getStartOffset(), hostRange.getEndOffset(),
                           info.getDescription(), info.getToolTip(), info.type.getSeverity(null), isAfterEndOfLine, null,
-                          false, 0, info.getProblemGroup(), info.getInspectionToolId(), info.getGutterIconRenderer());
+                          false, 0, info.getProblemGroup(), info.getInspectionToolId(), info.getGutterIconRenderer(), info.getGroup());
       patched.setHint(info.hasHint());
 
       if (info.quickFixActionRanges != null) {

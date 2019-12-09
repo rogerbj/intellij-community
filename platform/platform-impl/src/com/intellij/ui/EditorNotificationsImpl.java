@@ -2,14 +2,17 @@
 package com.intellij.ui;
 
 import com.intellij.ProjectTopics;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
+import com.intellij.internal.statistic.utils.PluginInfo;
+import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
+import com.intellij.openapi.extensions.ExtensionPointAdapter;
 import com.intellij.openapi.extensions.ProjectExtensionPointName;
-import com.intellij.openapi.fileEditor.FileEditor;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.FileEditorManagerListener;
-import com.intellij.openapi.fileEditor.TextEditor;
+import com.intellij.openapi.fileEditor.*;
 import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -34,26 +37,39 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 /**
  * @author peter
  */
 public class EditorNotificationsImpl extends EditorNotifications {
-  // do not use project level - use app level instead
   private static final ProjectExtensionPointName<Provider> EP_PROJECT = new ProjectExtensionPointName<>("com.intellij.editorNotificationProvider");
+  private static final Key<Boolean> PENDING_UPDATE = Key.create("pending.notification.update");
 
   private final MergingUpdateQueue myUpdateMerger;
   @NotNull private final Project myProject;
 
   public EditorNotificationsImpl(@NotNull Project project) {
-    myUpdateMerger = new MergingUpdateQueue("EditorNotifications update merger", 100, true, null, project);
+    myUpdateMerger = new MergingUpdateQueue("EditorNotifications update merger", 100, true, null, project)
+      .usePassThroughInUnitTestMode();
     myProject = project;
-    MessageBusConnection connection = project.getMessageBus().connect(project);
+    MessageBusConnection connection = project.getMessageBus().connect();
     connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerListener() {
       @Override
       public void fileOpened(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
         updateNotifications(file);
+      }
+
+      @Override
+      public void selectionChanged(@NotNull FileEditorManagerEvent event) {
+        VirtualFile file = event.getNewFile();
+        FileEditor editor = event.getNewEditor();
+        if (file != null && editor != null && Boolean.TRUE.equals(editor.getUserData(PENDING_UPDATE))) {
+          editor.putUserData(PENDING_UPDATE, null);
+          updateEditors(file, Collections.singletonList(editor));
+        }
       }
     });
     connection.subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
@@ -73,12 +89,20 @@ public class EditorNotificationsImpl extends EditorNotifications {
         updateAllNotifications();
       }
     });
+    EP_PROJECT.getPoint(project).addExtensionPointListener(
+      new ExtensionPointAdapter<Provider>() {
+        @Override
+        public void extensionListChanged() {
+          updateAllNotifications();
+        }
+      }
+    , false, project);
   }
 
   @Override
   public void updateNotifications(@NotNull VirtualFile file) {
     UIUtil.invokeLaterIfNeeded(() -> {
-      if (myProject.isDisposedOrDisposeInProgress() || !file.isValid()) {
+      if (myProject.isDisposed() || !file.isValid()) {
         return;
       }
 
@@ -87,18 +111,32 @@ public class EditorNotificationsImpl extends EditorNotifications {
                AsyncEditorLoader.isEditorLoaded(((TextEditor)editor).getEditor());
       });
 
-      ReadAction
-        .nonBlocking(() -> calcNotificationUpdates(file, editors))
-        .expireWith(myProject)
-        .expireWhen(() -> !file.isValid())
-        .coalesceBy(this, file)
-        .finishOnUiThread(ModalityState.any(), updates -> {
-          for (Runnable update : updates) {
-            update.run();
+      if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
+        Iterator<FileEditor> it = editors.iterator();
+        while (it.hasNext()) {
+          FileEditor e = it.next();
+          if (!e.getComponent().isShowing()) {
+            e.putUserData(PENDING_UPDATE, Boolean.TRUE);
+            it.remove();
           }
-        })
-        .submit(NonUrgentExecutor.getInstance());
+        }
+      }
+      if (!editors.isEmpty()) updateEditors(file, editors);
     });
+  }
+
+  private void updateEditors(@NotNull VirtualFile file, List<FileEditor> editors) {
+    ReadAction
+      .nonBlocking(() -> calcNotificationUpdates(file, editors))
+      .expireWith(myProject)
+      .expireWhen(() -> !file.isValid())
+      .coalesceBy(this, file)
+      .finishOnUiThread(ModalityState.any(), updates -> {
+        for (Runnable update : updates) {
+          update.run();
+        }
+      })
+      .submit(NonUrgentExecutor.getInstance());
   }
 
   @NotNull
@@ -108,18 +146,30 @@ public class EditorNotificationsImpl extends EditorNotifications {
     for (FileEditor editor : editors) {
       for (Provider<?> provider : providers) {
         JComponent component = provider.createNotificationPanel(file, editor, myProject);
-        updates.add(() -> updateNotification(editor, provider.getKey(), component));
+        if (component instanceof EditorNotificationPanel) {
+          ((EditorNotificationPanel) component).setProviderKey(provider.getKey());
+          ((EditorNotificationPanel) component).setProject(myProject);
+        }
+        updates.add(() -> updateNotification(editor, provider.getKey(), component, PluginInfoDetectorKt.getPluginInfo(provider.getClass())));
       }
     }
     return updates;
   }
 
-  private void updateNotification(@NotNull FileEditor editor, @NotNull Key<? extends JComponent> key, @Nullable JComponent component) {
+  private void updateNotification(@NotNull FileEditor editor,
+                                  @NotNull Key<? extends JComponent> key,
+                                  @Nullable JComponent component,
+                                  PluginInfo pluginInfo) {
     JComponent old = editor.getUserData(key);
     if (old != null) {
       FileEditorManager.getInstance(myProject).removeTopComponent(editor, old);
     }
     if (component != null) {
+      FeatureUsageData data = new FeatureUsageData()
+        .addData("key", key.toString())
+        .addPluginInfo(pluginInfo);
+      FUCounterUsageLogger.getInstance().logEvent(myProject, "editor.notification.panel", "shown", data);
+
       FileEditorManager.getInstance(myProject).addTopComponent(editor, component);
       @SuppressWarnings("unchecked") Key<JComponent> _key = (Key<JComponent>)key;
       editor.putUserData(_key, component);
@@ -127,6 +177,15 @@ public class EditorNotificationsImpl extends EditorNotifications {
     else {
       editor.putUserData(key, null);
     }
+  }
+
+  @Override
+  public void logNotificationActionInvocation(Key<?> providerKey, Class<?> runnableClass) {
+    FeatureUsageData data = new FeatureUsageData()
+      .addData("key", providerKey.toString())
+      .addData("class_name", runnableClass.getName())
+      .addPluginInfo(PluginInfoDetectorKt.getPluginInfo(runnableClass));
+    FUCounterUsageLogger.getInstance().logEvent(myProject, "editor.notification.panel", "actionInvoked", data);
   }
 
   @Override

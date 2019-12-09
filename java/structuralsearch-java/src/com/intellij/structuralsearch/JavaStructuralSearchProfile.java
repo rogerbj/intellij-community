@@ -43,7 +43,6 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -63,16 +62,18 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
   public static final PatternContext MEMBER_CONTEXT = new PatternContext("member", "Class Member");
   private static final List<PatternContext> PATTERN_CONTEXTS = ContainerUtil.immutableList(DEFAULT_CONTEXT, MEMBER_CONTEXT);
 
-  private static final Set<String> PRIMITIVE_TYPES = new THashSet<>(Arrays.asList(
+  private static final Set<String> PRIMITIVE_TYPES = ContainerUtil.set(
     PsiKeyword.SHORT, PsiKeyword.BOOLEAN,
     PsiKeyword.DOUBLE, PsiKeyword.LONG,
     PsiKeyword.INT, PsiKeyword.FLOAT,
     PsiKeyword.CHAR, PsiKeyword.BYTE
-  ));
+  );
 
   private static final Key<List<PsiErrorElement>> ERRORS = new Key<>("STRUCTURAL_SEARCH_ERRORS");
   private static final Comparator<PsiErrorElement> ERROR_COMPARATOR =
     Comparator.comparingInt(PsiErrorElement::getTextOffset).thenComparing(PsiErrorElement::getErrorDescription);
+  private static final Set<String> RESERVED_WORDS =
+    ContainerUtil.set(MatchOptions.MODIFIER_ANNOTATION_NAME, MatchOptions.INSTANCE_MODIFIER_NAME, PsiModifier.PACKAGE_LOCAL);
 
   @Override
   public String getText(PsiElement match, int start, int end) {
@@ -482,7 +483,7 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
       }
 
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         super.visitElement(element);
         if (element.getFirstChild() == null) {
           result.append(element.getText());
@@ -648,7 +649,7 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
     }
 
     @Override
-    public void visitErrorElement(PsiErrorElement element) {
+    public void visitErrorElement(@NotNull PsiErrorElement element) {
       super.visitErrorElement(element);
       final PsiElement parent = element.getParent();
       final String errorDescription = element.getErrorDescription();
@@ -728,7 +729,7 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
         if (scopeElement == null) return;
         scopeElement.accept(new JavaRecursiveElementWalkingVisitor() {
           @Override
-          public void visitElement(PsiElement element) {
+          public void visitElement(@NotNull PsiElement element) {
             final String type = element.getText();
             if (StructuralSearchUtil.isTypedVariable(type)) {
               final ParameterInfo typeInfo = builder.findParameterization(element);
@@ -785,61 +786,33 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
         // compound matches
         final StringBuilder buf = new StringBuilder();
 
-        MatchResult previous = null;
+        PsiElement previous = null;
         boolean stripSemicolon = false;
-        for (final MatchResult matchResult : match.getChildren()) {
+        for (MatchResult matchResult : match.getChildren()) {
           final PsiElement currentElement = matchResult.getMatch();
           stripSemicolon = !(currentElement instanceof PsiField);
 
           if (previous != null) {
             final PsiElement parent = currentElement.getParent();
             if (parent instanceof PsiVariable) {
-              final PsiElement prevSibling = PsiTreeUtil.skipWhitespacesBackward(parent);
-              if (PsiUtil.isJavaToken(prevSibling, JavaTokenType.COMMA)) {
-                buf.append(',');
-              }
+              addSeparatorText(previous.getParent(), parent, buf);
             }
-            else if (info.isStatementContext()) {
-              final PsiElement prevSibling = currentElement.getPrevSibling();
-
-              if (prevSibling instanceof PsiWhiteSpace && prevSibling.getPrevSibling() == previous.getMatch()) {
-                // sequential statements matched so preserve whitespace
-                buf.append(prevSibling.getText());
-              }
-              else {
-                buf.append('\n');
-              }
+            else if (parent instanceof PsiClass || parent instanceof PsiReferenceList) {
+              addSeparatorTextMatchedInAnyOrder(currentElement,
+                                                parent instanceof PsiClass ? PsiMember.class : PsiJavaCodeReferenceElement.class, buf);
             }
-            else if (info.isArgumentContext()) {
-              buf.append(',');
-            }
-            else if (parent instanceof PsiClass) {
-              final PsiElement prevSibling = PsiTreeUtil.skipWhitespacesBackward(currentElement);
-              if (PsiUtil.isJavaToken(prevSibling, JavaTokenType.COMMA)) {
-                buf.append(',');
-              }
-              else {
-                buf.append('\n');
-              }
-            }
-            else if (parent instanceof PsiReferenceList) {
-              buf.append(',');
-            }
-            else if (parent instanceof PsiPolyadicExpression) {
-              final PsiPolyadicExpression expression = (PsiPolyadicExpression)parent;
-              final PsiJavaToken token = expression.getTokenBeforeOperand(expression.getOperands()[1]);
-              if (token != null) {
-                buf.append(token.getText());
-              }
+            else if (info.isStatementContext() || info.isArgumentContext() || parent instanceof PsiPolyadicExpression) {
+              addSeparatorText
+                (previous, currentElement, buf);
             }
             else {
-              buf.append(' ');
+              buf.append(" "); // doesn't happen
             }
           }
 
           buf.append(matchResult.getMatchImage());
           forceAddingNewLine = currentElement instanceof PsiComment;
-          previous = matchResult;
+          previous = matchResult.getMatch();
         }
 
         replacementString = stripSemicolon ? StringUtil.trimEnd(buf.toString(), ';') : buf.toString();
@@ -857,6 +830,18 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
       if (forceAddingNewLine && info.isStatementContext()) {
         result.insert(info.getStartIndex() + offset + 1, '\n');
       }
+    }
+  }
+
+  private static void addSeparatorTextMatchedInAnyOrder(PsiElement element, Class<? extends PsiElement> aClass, StringBuilder out) {
+    final PsiElement prev = PsiTreeUtil.getPrevSiblingOfType(element, aClass);
+    assert prev != null;
+    addSeparatorText(prev, element, out);
+  }
+
+  private static void addSeparatorText(PsiElement left, PsiElement right, StringBuilder out) {
+    for (PsiElement e = left.getNextSibling(); e != null && e != right; e = e.getNextSibling()) {
+      out.append(e.getText());
     }
   }
 
@@ -934,7 +919,7 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
   @NotNull
   @Override
   public Collection<String> getReservedWords() {
-    return Collections.singleton(PsiModifier.PACKAGE_LOCAL);
+    return RESERVED_WORDS;
   }
 
   @Override
@@ -948,9 +933,12 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
 
     final StringBuilder result = new StringBuilder();
     if (matchResult.isMultipleMatch()) {
+      PsiElement previous = null;
       for (MatchResult child : matchResult.getChildren()) {
-        if (result.length() != 0) result.append(", ");
+        final PsiElement match = child.getMatch().getParent();
+        if (previous != null) addSeparatorText(previous, match, result);
         appendParameter(info, child, offset + result.length(), result.append(template));
+        previous = match;
       }
     }
     else {
@@ -961,7 +949,7 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
   }
 
   private static void appendParameter(ParameterInfo parameterInfo, MatchResult matchResult, int offset, StringBuilder out) {
-    Map<String, ParameterInfo> infos = parameterInfo.getUserData(PARAMETER_CONTEXT);
+    final Map<String, ParameterInfo> infos = parameterInfo.getUserData(PARAMETER_CONTEXT);
     assert infos != null;
     final List<MatchResult> matches = new SmartList<>(matchResult.getChildren());
     matches.add(matchResult);
@@ -973,27 +961,26 @@ public class JavaStructuralSearchProfile extends StructuralSearchProfile {
   }
 
   private static int removeExtraSemicolon(ParameterInfo info, int offset, StringBuilder result, MatchResult match) {
-    if (info.isStatementContext()) {
-      final int index = offset + info.getStartIndex();
-      final PsiElement matchElement = (match == null) ? null : match.getMatch();
-      if (result.charAt(index) == ';' &&
-          ( matchElement == null ||
-            ( result.charAt(index-1)=='}' &&
-              !(matchElement instanceof PsiDeclarationStatement) && // array init in dcl
-              !(matchElement instanceof PsiNewExpression) && // array initializer
-              !(matchElement instanceof PsiArrayInitializerExpression)
-            ) ||
-            ( match.isMultipleMatch()  // ; in comment
-              ? match.getChildren().get(match.getChildren().size() - 1).getMatch() instanceof PsiComment
-              : matchElement instanceof PsiComment
-            )
-          )
-        ) {
-        result.deleteCharAt(index);
-        --offset;
-      }
+    if (!info.isStatementContext()) {
+      return offset;
     }
+    final int index = offset + info.getStartIndex();
+    if (result.charAt(index) != ';') {
+      return offset;
+    }
+    final PsiElement matchElement;
+    if (match == null) matchElement = null;
+    else if (match.isMultipleMatch()) matchElement = match.getChildren().get(match.size() - 1).getMatch();
+    else matchElement = match.getMatch();
 
+    if (matchElement == null || matchElement instanceof PsiComment ||
+        result.charAt(index - 1) == '}' &&
+        !(matchElement instanceof PsiDeclarationStatement) && // array init in dcl
+        !(matchElement instanceof PsiNewExpression) && // array initializer
+        !(matchElement instanceof PsiArrayInitializerExpression)) {
+      result.deleteCharAt(index);
+      --offset;
+    }
     return offset;
   }
 

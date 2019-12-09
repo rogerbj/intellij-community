@@ -53,10 +53,9 @@ import java.util.Collections;
 import java.util.List;
 
 public class NewErrorTreeViewPanel extends JPanel implements DataProvider, OccurenceNavigator, MutableErrorTreeView, CopyProvider, Disposable {
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.ide.errorTreeView.NewErrorTreeViewPanel");
+  protected static final Logger LOG = Logger.getInstance(NewErrorTreeViewPanel.class);
   private volatile String myProgressText = "";
   private volatile float myFraction;
-  private final boolean myCreateExitAction;
   private final ErrorViewStructure myErrorViewStructure;
   private final StructureTreeModel<ErrorViewStructure> myStructureModel;
   private final Alarm myUpdateAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD);
@@ -99,7 +98,6 @@ public class NewErrorTreeViewPanel extends JPanel implements DataProvider, Occur
   public NewErrorTreeViewPanel(Project project, String helpId, boolean createExitAction, boolean createToolbar, @Nullable Runnable rerunAction) {
     myProject = project;
     myHelpId = helpId;
-    myCreateExitAction = createExitAction;
     myConfiguration = ErrorTreeViewConfiguration.getInstance(project);
     setLayout(new BorderLayout());
 
@@ -280,7 +278,7 @@ public class NewErrorTreeViewPanel extends JPanel implements DataProvider, Occur
     ));
   }
 
-  private void updateAddedElement(ErrorTreeElement element) {
+  protected void updateAddedElement(@NotNull ErrorTreeElement element) {
     Promise<?> promise;
     final Object parent = myErrorViewStructure.getParentElement(element);
     if (parent == null) {
@@ -299,8 +297,12 @@ public class NewErrorTreeViewPanel extends JPanel implements DataProvider, Occur
     }
     if (element.getKind() == ErrorTreeElementKind.ERROR) {
       // expand automatically only errors
-      promise.onSuccess(p -> myStructureModel.makeVisible(element, myTree, pp->{}));
+      promise.onSuccess(p -> makeVisible(element));
     }
+  }
+
+  protected void makeVisible(@NotNull ErrorTreeElement element) {
+    myStructureModel.makeVisible(element, myTree, pp->{});
   }
 
   @Override
@@ -543,6 +545,7 @@ public class NewErrorTreeViewPanel extends JPanel implements DataProvider, Occur
     group.add(new StopAction());
     if (canHideWarnings()) {
       group.addSeparator();
+      group.add(new ShowInfosAction());
       group.add(new ShowWarningsAction());
     }
 
@@ -656,8 +659,29 @@ public class NewErrorTreeViewPanel extends JPanel implements DataProvider, Occur
 
     @Override
     public void setSelected(@NotNull AnActionEvent event, boolean showWarnings) {
-      if (showWarnings == isHideWarnings()) {
-        myConfiguration.setHideWarnings(!showWarnings);
+      final boolean hideWarnings = !showWarnings;
+      if (myConfiguration.isHideWarnings() != hideWarnings) {
+        myConfiguration.setHideWarnings(hideWarnings);
+        myStructureModel.invalidate();
+      }
+    }
+  }
+
+  private class ShowInfosAction extends ToggleAction implements DumbAware {
+    ShowInfosAction() {
+      super(IdeBundle.message("action.show.infos"), null, AllIcons.General.ShowInfos);
+    }
+
+    @Override
+    public boolean isSelected(@NotNull AnActionEvent event) {
+      return !isHideInfos();
+    }
+
+    @Override
+    public void setSelected(@NotNull AnActionEvent event, boolean showInfos) {
+      final boolean hideInfos = !showInfos;
+      if (myConfiguration.isHideInfoMessages() != hideInfos) {
+        myConfiguration.setHideInfoMessages(hideInfos);
         myStructureModel.invalidate();
       }
     }
@@ -665,6 +689,10 @@ public class NewErrorTreeViewPanel extends JPanel implements DataProvider, Occur
 
   public boolean isHideWarnings() {
     return myConfiguration.isHideWarnings();
+  }
+
+  public boolean isHideInfos() {
+    return myConfiguration.isHideInfoMessages();
   }
 
   private class MyTreeExpander implements TreeExpander {

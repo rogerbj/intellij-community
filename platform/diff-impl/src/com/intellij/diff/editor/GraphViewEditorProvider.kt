@@ -1,6 +1,5 @@
 package com.intellij.diff.editor
 
-import com.intellij.diff.util.DiffUserDataKeysEx
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
@@ -11,18 +10,18 @@ import com.intellij.openapi.vfs.VirtualFile
 
 class GraphViewEditorProvider : FileEditorProvider, DumbAware {
   override fun accept(project: Project, file: VirtualFile): Boolean {
-    return file is GraphViewVirtualFile
+    return file is VCSContentVirtualFile
   }
 
   override fun createEditor(project: Project, file: VirtualFile): FileEditor {
-    return GraphViewEditor(file as GraphViewVirtualFile)
+    return VCSContentEditor(file as VCSContentVirtualFile)
   }
 
   override fun disposeEditor(editor: FileEditor) {
-      Disposer.dispose(editor)
+    Disposer.dispose(editor)
   }
 
   override fun getEditorTypeId(): String = "GraphViewEditor"
   override fun getPolicy(): FileEditorPolicy =
-      FileEditorPolicy.HIDE_DEFAULT_EDITOR
+    FileEditorPolicy.PLACE_BEFORE_DEFAULT_EDITOR
 }

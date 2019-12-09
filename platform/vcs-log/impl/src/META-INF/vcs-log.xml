@@ -1,9 +1,13 @@
 <idea-plugin>
+  <projectListeners>
+    <listener class="com.intellij.vcs.log.impl.VcsToolWindowEditorSynchronizer$MyFileEditorListener" topic="com.intellij.openapi.fileEditor.FileEditorManagerListener" />
+    <listener class="com.intellij.vcs.log.impl.VcsToolWindowEditorSynchronizer$MyToolwindowListener" topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener" />
+  </projectListeners>
+
   <extensionPoints>
     <extensionPoint name="logProvider" interface="com.intellij.vcs.log.VcsLogProvider" area="IDEA_PROJECT"/>
     <extensionPoint name="logHighlighterFactory" interface="com.intellij.vcs.log.ui.highlighters.VcsLogHighlighterFactory"
                     area="IDEA_PROJECT"/>
-    <extensionPoint name="vcsLogIndexService" interface="com.intellij.vcs.log.VcsLogIndexService"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -15,6 +19,8 @@
     <projectService serviceImplementation="com.intellij.vcs.log.impl.VcsLogSharedSettings"/>
 
     <projectService serviceImplementation="com.intellij.vcs.log.impl.VcsProjectLog"/>
+    <projectService serviceImplementation="com.intellij.vcs.log.impl.VcsToolWindowEditorSynchronizer"/>
+
     <projectService serviceInterface="com.intellij.vcs.log.VcsLogObjectsFactory"
                     serviceImplementation="com.intellij.vcs.log.impl.VcsLogObjectsFactoryImpl"/>
     <projectService serviceImplementation="com.intellij.vcs.log.impl.VcsLogProjectTabsProperties"/>
@@ -49,6 +55,8 @@
                         serviceImplementation="com.intellij.vcs.log.history.VcsLogFileHistoryProviderImpl"/>
 
     <getDataRule key="Vcs.FileHistory.Ui" implementationClass="com.intellij.vcs.log.history.FileHistoryUiDataRule"/>
+    <getDataRule key="Vcs.Log.Main.Ui" implementationClass="com.intellij.vcs.log.ui.MainVcsLogUiDataRule"/>
+    <getDataRule key="Vcs.Log.UiEx" implementationClass="com.intellij.vcs.log.ui.VcsLogUiExDataRule"/>
 
     <diff.actions.ShowDiffAction.ExtensionProvider
         implementation="com.intellij.vcs.log.ui.actions.history.CompareRevisionsFromFileHistoryActionProvider"/>
@@ -67,6 +75,10 @@
     <openapi.vcs.changes.actions.diff.ChangeDiffRequestProvider implementation="com.intellij.vcs.log.impl.MergedChangeDiffRequestProvider"/>
 
     <actionPromoter implementation="com.intellij.vcs.log.ui.actions.VcsLogActionPromoter"/>
+
+    <fileIconProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogIconProvider"/>
+    <fileEditorProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogEditorProvider"/>
+    <editorTabTitleProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogEditorTabTitleProvider"/>
   </extensions>
 
   <actions>
@@ -95,7 +107,6 @@
     <action class="com.intellij.vcs.log.ui.actions.ShowDiffPreviewAction" id="Vcs.Log.ShowDiffPreview"/>
     <action class="com.intellij.vcs.log.ui.actions.ShowChangesFromParentsAction" id="Vcs.Log.ShowChangesFromParents"/>
     <action class="com.intellij.vcs.log.ui.actions.ShowOnlyAffectedChangesAction" id="Vcs.Log.ShowOnlyAffectedChanges"/>
-    <action class="com.intellij.vcs.log.ui.actions.ShowPreviewEditorAction" id="Vcs.Log.ShowDiffPreviewInEditor"/>
     <action class="com.intellij.vcs.log.ui.actions.ShowRootsColumnAction" id="Vcs.Log.ShowRootsColumnAction"/>
     <action class="com.intellij.vcs.log.ui.actions.PreferCommitDateAction" id="Vcs.Log.PreferCommitDate"/>
     <action class="com.intellij.vcs.log.ui.actions.FocusTextFilterAction" id="Vcs.Log.FocusTextFilter">
@@ -183,7 +194,6 @@
     <group id="Vcs.Log.ChangesBrowser.Toolbar">
       <reference id="Vcs.RepositoryChangesBrowserToolbar"/>
       <reference id="Vcs.Log.ShowOnlyAffectedChanges"/>
-      <reference id="Vcs.Log.ShowDiffPreviewInEditor"/>
       <separator/>
       <reference id="ChangesView.GroupBy"/>
       <separator/>
@@ -215,7 +225,6 @@
       <reference id="Vcs.Log.Refresh"/>
       <reference id="Diff.ShowDiff"/>
       <reference id="Vcs.Log.ShowAllAffected"/>
-      <reference id="Vcs.Log.ShowDiffPreviewInEditor"/>
       <separator/>
       <reference id="Vcs.Log.ShowOtherBranches"/>
       <reference id="Vcs.FileHistory.PresentationSettings"/>
@@ -243,7 +252,6 @@
       <reference ref="Vcs.Log.ShowDetailsAction"/>
       <reference ref="Vcs.Log.ShowChangesFromParents"/>
       <reference ref="Vcs.Log.ShowDiffPreview"/>
-      <reference ref="Vcs.Log.ShowDiffPreviewInEditor"/>
       <separator/>
       <reference ref="Vcs.Log.Refresh"/>
       <reference ref="Vcs.Log.OpenAnotherTab"/>

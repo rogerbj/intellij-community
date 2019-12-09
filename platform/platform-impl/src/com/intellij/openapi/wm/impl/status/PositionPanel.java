@@ -8,9 +8,12 @@ import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.event.*;
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
+import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.ui.UIBundle;
@@ -24,7 +27,7 @@ import java.awt.event.MouseEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
-public final class PositionPanel extends EditorBasedWidget
+public class PositionPanel extends EditorBasedWidget
   implements StatusBarWidget.Multiframe, StatusBarWidget.TextPresentation,
              CaretListener, SelectionListener, BulkAwareDocumentListener.Simple, PropertyChangeListener {
 
@@ -79,7 +82,18 @@ public final class PositionPanel extends EditorBasedWidget
 
   @Override
   public String getTooltipText() {
-    return UIBundle.message("go.to.line.command.name");
+    String toolTip = UIBundle.message("go.to.line.command.name");
+    String shortcut = getShortcutText();
+
+    if (!Registry.is("ide.helptooltip.enabled") && StringUtil.isNotEmpty(shortcut)) {
+      return toolTip + " (" + shortcut + ")";
+    }
+    return toolTip;
+  }
+
+  @Override
+  public String getShortcutText() {
+    return KeymapUtil.getFirstKeyboardShortcutText("GotoLine");
   }
 
   @Override

@@ -8,7 +8,6 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.ide.util.EditSourceUtil;
 import com.intellij.lang.Language;
-import com.intellij.lang.LanguageExtension;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.ServiceManager;
@@ -27,7 +26,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiTreeUtilKt;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.BitUtil;
 import com.intellij.util.Consumer;
@@ -41,8 +39,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-@SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
-public class TargetElementUtil extends TargetElementUtilBase {
+public class TargetElementUtil  {
   /**
    * A flag used in {@link #findTargetElement(Editor, int, int)} indicating that if a reference is found at the specified offset,
    * it should be resolved and the result returned.
@@ -65,7 +62,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return ServiceManager.getService(TargetElementUtil.class);
   }
 
-  @Override
   public int getAllAccepted() {
     int result = REFERENCED_ELEMENT_ACCEPTED | ELEMENT_NAME_ACCEPTED | LOOKUP_ITEM_ACCEPTED;
     for (TargetElementUtilExtender each : TargetElementUtilExtender.EP_NAME.getExtensionList()) {
@@ -74,7 +70,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return result;
   }
 
-  @Override
   public int getDefinitionSearchFlags() {
     int result = getAllAccepted();
     for (TargetElementUtilExtender each : TargetElementUtilExtender.EP_NAME.getExtensionList()) {
@@ -83,7 +78,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return result;
   }
 
-  @Override
   public int getReferenceSearchFlags() {
     int result = getAllAccepted();
     for (TargetElementUtilExtender each : TargetElementUtilExtender.EP_NAME.getExtensionList()) {
@@ -114,7 +108,7 @@ public class TargetElementUtil extends TargetElementUtilBase {
     PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(document);
     if (file == null) return null;
 
-    PsiReference ref = file.findReferenceAt(adjustOffset(file, document, offset));
+    PsiReference ref = file.findReferenceAt(TargetElementUtilBase.adjustOffset(file, document, offset));
     if (ref == null) return null;
     int elementOffset = ref.getElement().getTextRange().getStartOffset();
 
@@ -127,45 +121,8 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return null;
   }
 
-  /**
-   * Attempts to adjust the {@code offset} in the {@code file} to point to an {@link #isIdentifierPart(PsiFile, CharSequence, int) identifier},
-   * single quote, double quote, closing bracket or parentheses by moving it back by a single character. Does nothing if there are no
-   * identifiers around, or the {@code offset} is already in one.
-   *
-   * @param file language source for the {@link #isIdentifierPart(com.intellij.psi.PsiFile, java.lang.CharSequence, int)}
-   * @see PsiTreeUtilKt#elementsAroundOffsetUp(PsiFile, int)
-   */
   public static int adjustOffset(@Nullable PsiFile file, Document document, final int offset) {
-    CharSequence text = document.getCharsSequence();
-    int correctedOffset = offset;
-    int textLength = document.getTextLength();
-    if (offset >= textLength) {
-      correctedOffset = textLength - 1;
-    }
-    else if (!isIdentifierPart(file, text, offset)) {
-      correctedOffset--;
-    }
-    if (correctedOffset >= 0) {
-      char charAt = text.charAt(correctedOffset);
-      if (charAt == '\'' || charAt == '"' || charAt == ')' || charAt == ']' ||
-          isIdentifierPart(file, text, correctedOffset)) {
-        return correctedOffset;
-      }
-    }
-    return offset;
-  }
-
-  /**
-   * @return true iff character at the offset may be a part of an identifier.
-   * @see Character#isJavaIdentifierPart(char)
-   * @see TargetElementEvaluatorEx#isIdentifierPart(com.intellij.psi.PsiFile, java.lang.CharSequence, int)
-   */
-  private static boolean isIdentifierPart(@Nullable PsiFile file, CharSequence text, int offset) {
-    if (file != null) {
-      TargetElementEvaluatorEx evaluator = getElementEvaluatorsEx(file.getLanguage());
-      if (evaluator != null && evaluator.isIdentifierPart(file, text, offset)) return true;
-    }
-    return Character.isJavaIdentifierPart(text.charAt(offset));
+    return TargetElementUtilBase.adjustOffset(file, document, offset);
   }
 
   public static boolean inVirtualSpace(@NotNull Editor editor, int offset) {
@@ -203,7 +160,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
    * depending on the flags passed.
    * @see #findTargetElement(Editor, int)
    */
-  @Override
   @Nullable
   public PsiElement findTargetElement(@NotNull Editor editor, int flags, int offset) {
     PsiElement result = doFindTargetElement(editor, flags, offset);
@@ -230,7 +186,7 @@ public class TargetElementUtil extends TargetElementUtilBase {
     PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(document);
     if (file == null) return null;
 
-    int adjusted = adjustOffset(file, document, offset);
+    int adjusted = TargetElementUtilBase.adjustOffset(file, document, offset);
 
     PsiElement element = file.findElementAt(adjusted);
     if (BitUtil.isSet(flags, REFERENCED_ELEMENT_ACCEPTED)) {
@@ -297,7 +253,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return evaluator != null ? evaluator.adjustReference(ref) : null;
   }
 
-  @Override
   @Nullable
   public PsiElement getNamedElement(@Nullable final PsiElement element, final int offsetInElement) {
     if (element == null) return null;
@@ -378,7 +333,7 @@ public class TargetElementUtil extends TargetElementUtilBase {
     if (ref == null) return null;
 
     final Language language = ref.getElement().getLanguage();
-    TargetElementEvaluator evaluator = TARGET_ELEMENT_EVALUATOR.forLanguage(language);
+    TargetElementEvaluator evaluator = TargetElementUtilBase.TARGET_ELEMENT_EVALUATOR.forLanguage(language);
     if (evaluator != null) {
       final PsiElement element = evaluator.getElementByReference(ref, flags);
       if (element != null) return element;
@@ -387,7 +342,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return ref.resolve();
   }
 
-  @Override
   @NotNull
   public Collection<PsiElement> getTargetCandidates(@NotNull PsiReference reference) {
     PsiElement refElement = reference.getElement();
@@ -423,7 +377,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return EditSourceUtil.canNavigate(element) || element instanceof Navigatable && ((Navigatable)element).canNavigateToSource();
   }
 
-  @Override
   public PsiElement getGotoDeclarationTarget(final PsiElement element, final PsiElement navElement) {
     TargetElementEvaluatorEx2 evaluator = element != null ? getElementEvaluatorsEx2(element.getLanguage()) : null;
     if (evaluator != null) {
@@ -433,9 +386,8 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return navElement;
   }
 
-  @Override
   public boolean includeSelfInGotoImplementation(@NotNull final PsiElement element) {
-    TargetElementEvaluator evaluator = TARGET_ELEMENT_EVALUATOR.forLanguage(element.getLanguage());
+    TargetElementEvaluator evaluator = TargetElementUtilBase.TARGET_ELEMENT_EVALUATOR.forLanguage(element.getLanguage());
     return evaluator == null || evaluator.includeSelfInGotoImplementation(element);
   }
 
@@ -444,7 +396,6 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return evaluator == null || evaluator.acceptImplementationForReference(reference, element);
   }
 
-  @Override
   @NotNull
   public SearchScope getSearchScope(Editor editor, @NotNull PsiElement element) {
     TargetElementEvaluatorEx2 evaluator = getElementEvaluatorsEx2(element.getLanguage());
@@ -455,16 +406,9 @@ public class TargetElementUtil extends TargetElementUtilBase {
     return PsiSearchHelper.getInstance(element.getProject()).getUseScope(file != null ? file : element);
   }
 
-  private static final LanguageExtension<TargetElementEvaluator> TARGET_ELEMENT_EVALUATOR =
-    new LanguageExtension<>("com.intellij.targetElementEvaluator");
-  @Nullable
-  private static TargetElementEvaluatorEx getElementEvaluatorsEx(@NotNull Language language) {
-    TargetElementEvaluator result = TARGET_ELEMENT_EVALUATOR.forLanguage(language);
-    return result instanceof TargetElementEvaluatorEx ? (TargetElementEvaluatorEx)result : null;
-  }
   @Nullable
   private static TargetElementEvaluatorEx2 getElementEvaluatorsEx2(@NotNull Language language) {
-    TargetElementEvaluator result = TARGET_ELEMENT_EVALUATOR.forLanguage(language);
+    TargetElementEvaluator result = TargetElementUtilBase.TARGET_ELEMENT_EVALUATOR.forLanguage(language);
     return result instanceof TargetElementEvaluatorEx2 ? (TargetElementEvaluatorEx2)result : null;
   }
 }

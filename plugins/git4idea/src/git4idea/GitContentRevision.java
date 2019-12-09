@@ -44,6 +44,11 @@ public class GitContentRevision implements ByteBackedContentRevision {
     myCharset = charset;
   }
 
+  @Nullable
+  public Charset getCharset() {
+    return myCharset;
+  }
+
   @Override
   @Nullable
   public String getContent() throws VcsException {
@@ -141,8 +146,13 @@ public class GitContentRevision implements ByteBackedContentRevision {
 
   @NotNull
   public static FilePath createPath(@NotNull VirtualFile vcsRoot, @NotNull String unescapedPath) {
+    return createPath(vcsRoot, unescapedPath, false);
+  }
+
+  @NotNull
+  public static FilePath createPath(@NotNull VirtualFile vcsRoot, @NotNull String unescapedPath, boolean isDirectory) {
     String absolutePath = makeAbsolutePath(vcsRoot, unescapedPath);
-    return VcsUtil.getFilePath(absolutePath, false);
+    return VcsUtil.getFilePath(absolutePath, isDirectory);
   }
 
   @NotNull

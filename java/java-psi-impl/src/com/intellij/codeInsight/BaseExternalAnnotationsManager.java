@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 
 public abstract class BaseExternalAnnotationsManager extends ExternalAnnotationsManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.BaseExternalAnnotationsManager");
+  private static final Logger LOG = Logger.getInstance(BaseExternalAnnotationsManager.class);
   private static final Key<Boolean> EXTERNAL_ANNO_MARKER = Key.create("EXTERNAL_ANNO_MARKER");
   private static final List<PsiFile> NULL_LIST = Collections.emptyList();
 
@@ -201,7 +201,7 @@ public abstract class BaseExternalAnnotationsManager extends ExternalAnnotations
 
     DataParsingSaxHandler handler = new DataParsingSaxHandler(file);
     try {
-      SAXParser saxParser = SAXParserFactory.newInstance().newSAXParser();
+      SAXParser saxParser = Holder.FACTORY.newSAXParser();
       saxParser.parse(new InputSource(new CharSequenceReader(escapeAttributes(file.getViewProvider().getContents()))), handler);
     }
     catch (IOException | ParserConfigurationException | SAXException e) {
@@ -211,6 +211,10 @@ public abstract class BaseExternalAnnotationsManager extends ExternalAnnotations
     MostlySingularMultiMap<String, AnnotationData> result = handler.getResult();
     myAnnotationFileToDataAndModStampCache.put(file, Pair.create(result, fileModificationStamp));
     return result;
+  }
+
+  private interface Holder {
+    SAXParserFactory FACTORY = SAXParserFactory.newInstance();
   }
 
   protected void duplicateError(@NotNull PsiFile file, @NotNull String externalName, @NotNull String text) {
@@ -318,6 +322,9 @@ public abstract class BaseExternalAnnotationsManager extends ExternalAnnotations
   // failing, we escape attributes values.
   @NotNull
   private static CharSequence escapeAttributes(@NotNull CharSequence invalidXml) {
+    if (!hasInvalidAttribute(invalidXml)) {
+      return invalidXml;
+    }
     // We assume that XML has single- and double-quote characters only for attribute values, therefore we don't any complex parsing,
     // just have binary inAttribute state
     StringBuilder buf = new StringBuilder(invalidXml.length());
@@ -339,6 +346,23 @@ public abstract class BaseExternalAnnotationsManager extends ExternalAnnotations
       }
     }
     return buf;
+  }
+
+  private static boolean hasInvalidAttribute(CharSequence invalidXml) {
+    boolean inAttribute = false;
+    for (int i = 0; i < invalidXml.length(); i++) {
+      char c = invalidXml.charAt(i);
+      if (inAttribute && c == '<') {
+        return true;
+      }
+      else if (inAttribute && c == '>') {
+        return true;
+      }
+      else if (c == '\"' || c == '\'') {
+        inAttribute = !inAttribute;
+      }
+    }
+    return false;
   }
 
   @Override

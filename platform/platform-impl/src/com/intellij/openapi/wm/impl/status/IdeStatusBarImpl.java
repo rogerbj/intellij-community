@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.status;
 
+import com.intellij.ide.HelpTooltipManager;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.notification.impl.IdeNotificationArea;
 import com.intellij.openapi.Disposable;
@@ -16,6 +17,7 @@ import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
@@ -307,7 +309,7 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
     else if (pos == Position.LEFT) {
       if (myLeftPanel == null) {
         myLeftPanel = new JPanel();
-        myLeftPanel.setBorder(JBUI.Borders.empty(1, 4, 0, 1));
+        myLeftPanel.setBorder(JBUI.Borders.empty(0, 4, 0, 1));
         myLeftPanel.setLayout(new BoxLayout(myLeftPanel, BoxLayout.X_AXIS));
         myLeftPanel.setOpaque(false);
         add(myLeftPanel, BorderLayout.WEST);
@@ -318,7 +320,7 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
     else {
       if (myCenterPanel == null) {
         myCenterPanel = JBUI.Panels.simplePanel().andTransparent();
-        myCenterPanel.setBorder(JBUI.Borders.empty(1, 1, 0, 1));
+        myCenterPanel.setBorder(JBUI.Borders.empty(0, 1));
         add(myCenterPanel, BorderLayout.CENTER);
       }
 
@@ -465,7 +467,7 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
     Disposer.register(this, widget);
   }
 
-  private static JComponent wrap(@NotNull final StatusBarWidget widget) {
+  public static JComponent wrap(@NotNull final StatusBarWidget widget) {
     if (widget instanceof CustomStatusBarWidget) {
       JComponent component = ((CustomStatusBarWidget)widget).getComponent();
       if (component.getBorder() == null) {
@@ -626,8 +628,16 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
   }
 
   @FunctionalInterface
-  private interface StatusBarWrapper {
+  public interface StatusBarWrapper {
     void beforeUpdate();
+  }
+
+  private static void initTooltip(JComponent component, StatusBarWidget.WidgetPresentation presentation) {
+    component.setToolTipText(presentation.getTooltipText());
+
+    if (Registry.is("ide.helptooltip.enabled")) {
+      component.putClientProperty(HelpTooltipManager.SHORTCUT_PROPERTY, presentation.getShortcutText());
+    }
   }
 
   private static final class MultipleTextValuesPresentationWrapper extends TextPanel.WithIconAndArrows implements StatusBarWrapper {
@@ -661,7 +671,7 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
       setText(value);
       setIcon(myPresentation.getIcon());
       setVisible(StringUtil.isNotEmpty(value));
-      setToolTipText(myPresentation.getTooltipText());
+      initTooltip(this, myPresentation);
     }
   }
 
@@ -689,7 +699,7 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
       String text = myPresentation.getText();
       setText(text);
       setVisible(!text.isEmpty());
-      setToolTipText(myPresentation.getTooltipText());
+      initTooltip(this, myPresentation);
     }
   }
 
@@ -717,7 +727,7 @@ public final class IdeStatusBarImpl extends JComponent implements Accessible, St
     public void beforeUpdate() {
       setIcon(myPresentation.getIcon());
       setVisible(hasIcon());
-      setToolTipText(myPresentation.getTooltipText());
+      initTooltip(this, myPresentation);
     }
   }
 

@@ -49,11 +49,12 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import static com.intellij.util.ReflectionUtil.getDeclaredMethod;
+import static com.intellij.util.ReflectionUtil.getField;
 import static java.util.stream.Collectors.toList;
 
 public final class TreeUtil {
   public static final TreePath[] EMPTY_TREE_PATH = new TreePath[0];
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.ui.tree.TreeUtil");
+  private static final Logger LOG = Logger.getInstance(TreeUtil.class);
   private static final String TREE_UTIL_SCROLL_TIME_STAMP = "TreeUtil.scrollTimeStamp";
   private static final JBIterable<Integer> NUMBERS = JBIterable.generate(0, i -> i + 1);
 
@@ -745,15 +746,6 @@ public final class TreeUtil {
     return lastRow - firstRow + 1;
   }
 
-  /**
-   * @deprecated use {@link #getVisibleRowCount(JTree)}
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
-  public static int getVisibleRowCountForFixedRowHeight(@NotNull final JTree tree) {
-    return getVisibleRowCount(tree);
-  }
-
   @SuppressWarnings("HardCodedStringLiteral")
   public static void installActions(@NotNull final JTree tree) {
     TreeUI ui = tree.getUI();
@@ -1156,6 +1148,10 @@ public final class TreeUtil {
   public static void invalidateCacheAndRepaint(@Nullable TreeUI ui) {
     if (ui instanceof BasicTreeUI) {
       BasicTreeUI basic = (BasicTreeUI)ui;
+      if (null == getField(BasicTreeUI.class, ui, JTree.class, "tree")) {
+        LOG.warn(new IllegalStateException("tree is not properly initialized yet"));
+        return;
+      }
       UIUtil.invokeLaterIfNeeded(() -> basic.setLeftChildIndent(basic.getLeftChildIndent()));
     }
   }

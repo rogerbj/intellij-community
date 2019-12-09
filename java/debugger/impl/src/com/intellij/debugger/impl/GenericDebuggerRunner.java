@@ -135,14 +135,14 @@ public class GenericDebuggerRunner extends JavaPatchableProgramRunner<GenericDeb
 
     if (debuggerRunnerSettings != null) {
       remoteConnection.setUseSockets(debuggerRunnerSettings.getTransport() == DebuggerSettings.SOCKET_TRANSPORT);
-      remoteConnection.setAddress(debuggerRunnerSettings.getDebugPort());
+      remoteConnection.setDebuggerAddress(debuggerRunnerSettings.getDebugPort());
     }
 
     return remoteConnection;
   }
 
   @Override
-  public GenericDebuggerRunnerSettings createConfigurationData(ConfigurationInfoProvider settingsProvider) {
+  public GenericDebuggerRunnerSettings createConfigurationData(@NotNull ConfigurationInfoProvider settingsProvider) {
     return new GenericDebuggerRunnerSettings();
   }
 

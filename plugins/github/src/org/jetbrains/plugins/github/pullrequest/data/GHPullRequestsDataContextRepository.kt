@@ -8,20 +8,21 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.CollectionListModel
+import com.intellij.util.messages.ListenerDescriptor
 import com.intellij.util.messages.MessageBusFactory
+import com.intellij.util.messages.MessageBusOwner
 import git4idea.commands.Git
 import org.jetbrains.annotations.CalledInBackground
+import org.jetbrains.plugins.github.api.GHGQLRequests
 import org.jetbrains.plugins.github.api.GHRepositoryCoordinates
 import org.jetbrains.plugins.github.api.GithubApiRequestExecutor
-import org.jetbrains.plugins.github.api.GithubApiRequests
+import org.jetbrains.plugins.github.api.data.GHUser
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccountInformationProvider
 import org.jetbrains.plugins.github.pullrequest.data.GHPullRequestsDataContext.Companion.PULL_REQUEST_EDITED_TOPIC
 import org.jetbrains.plugins.github.pullrequest.data.GHPullRequestsDataContext.Companion.PullRequestEditedListener
-import org.jetbrains.plugins.github.pullrequest.data.service.GithubPullRequestsMetadataServiceImpl
-import org.jetbrains.plugins.github.pullrequest.data.service.GithubPullRequestsSecurityServiceImpl
-import org.jetbrains.plugins.github.pullrequest.data.service.GithubPullRequestsStateServiceImpl
+import org.jetbrains.plugins.github.pullrequest.data.service.*
 import org.jetbrains.plugins.github.pullrequest.search.GithubPullRequestSearchQueryHolderImpl
 import org.jetbrains.plugins.github.util.GitRemoteUrlCoordinates
 import org.jetbrains.plugins.github.util.GithubSharedProjectSettings
@@ -30,14 +31,6 @@ import java.io.IOException
 
 @Service
 internal class GHPullRequestsDataContextRepository(private val project: Project) {
-
-  private val progressManager = ProgressManager.getInstance()
-  private val messageBusFactory = MessageBusFactory.getInstance()
-  private val git = Git.getInstance()
-  private val accountInformationProvider = GithubAccountInformationProvider.getInstance()
-
-  private val sharedProjectSettings = GithubSharedProjectSettings.getInstance(project)
-
   @CalledInBackground
   @Throws(IOException::class)
   fun getContext(indicator: ProgressIndicator,
@@ -48,42 +41,75 @@ internal class GHPullRequestsDataContextRepository(private val project: Project)
                      "Invalid GitHub Repository URL - ${gitRemoteCoordinates.url} is not a GitHub repository")
 
     indicator.text = "Loading account information"
-    val accountDetails = accountInformationProvider.getInformation(requestExecutor, indicator, account)
+    val accountDetails = GithubAccountInformationProvider.getInstance().getInformation(requestExecutor, indicator, account)
     indicator.checkCanceled()
 
     indicator.text = "Loading repository information"
-    val repoDetails = requestExecutor.execute(indicator, GithubApiRequests.Repos.get(account.server, fullPath.owner, fullPath.repository))
-                      ?: throw IllegalArgumentException(
-                        "Repository $fullPath does not exist at ${account.server} or you don't have access.")
+    val repoWithPermissions =
+      requestExecutor.execute(indicator, GHGQLRequests.Repo.findPermission(GHRepositoryCoordinates(account.server, fullPath)))
+      ?: throw IllegalArgumentException("Repository $fullPath does not exist at ${account.server} or you don't have access.")
 
-    val messageBus = messageBusFactory.createMessageBus(this)
+    val currentUser = GHUser(accountDetails.nodeId, accountDetails.login, accountDetails.htmlUrl, accountDetails.avatarUrl!!,
+                             accountDetails.name)
+    val repositoryCoordinates = GHRepositoryCoordinates(account.server, repoWithPermissions.path)
+
+    val messageBus = MessageBusFactory.getInstance().createMessageBus(object : MessageBusOwner {
+      override fun isDisposed() = project.isDisposed
+
+      override fun createListener(descriptor: ListenerDescriptor) = throw UnsupportedOperationException()
+    })
+
+    val securityService = GithubPullRequestsSecurityServiceImpl(GithubSharedProjectSettings.getInstance(project), currentUser, repoWithPermissions)
+    val reviewService = GHPRReviewServiceImpl(ProgressManager.getInstance(), messageBus, securityService, requestExecutor, repositoryCoordinates)
+    val commentService = GHPRCommentServiceImpl(ProgressManager.getInstance(), messageBus, securityService, requestExecutor,
+                                                repositoryCoordinates)
 
     val listModel = CollectionListModel<GHPullRequestShort>()
     val searchHolder = GithubPullRequestSearchQueryHolderImpl()
-    val listLoader = GHPRListLoaderImpl(progressManager, requestExecutor, account.server, repoDetails.fullPath, listModel, searchHolder)
-    val dataLoader = GithubPullRequestsDataLoaderImpl(project, progressManager, git, requestExecutor,
-                                                      gitRemoteCoordinates.repository, gitRemoteCoordinates.remote,
-                                                      account.server, repoDetails.fullPath)
+    val listLoader = GHPRListLoaderImpl(ProgressManager.getInstance(), requestExecutor, account.server, repoWithPermissions.path, listModel,
+                                        searchHolder)
+
+    val dataLoader = GithubPullRequestsDataLoaderImpl {
+      GithubPullRequestDataProviderImpl(project, ProgressManager.getInstance(), Git.getInstance(), requestExecutor, gitRemoteCoordinates,
+                                        repositoryCoordinates, it)
+    }
+    requestExecutor.addListener(dataLoader) {
+      dataLoader.invalidateAllData()
+    }
     messageBus.connect().subscribe(PULL_REQUEST_EDITED_TOPIC, object : PullRequestEditedListener {
       override fun onPullRequestEdited(number: Long) {
         runInEdt {
           val dataProvider = dataLoader.findDataProvider(number)
           dataProvider?.reloadDetails()
           dataProvider?.detailsRequest?.let { listLoader.reloadData(it) }
+          dataProvider?.timelineLoader?.loadMore(true)
+        }
+      }
+
+      override fun onPullRequestReviewsEdited(number: Long) {
+        runInEdt {
+          val dataProvider = dataLoader.findDataProvider(number)
+          dataProvider?.reloadReviewThreads()
+          dataProvider?.timelineLoader?.loadMore(true)
+        }
+      }
+
+      override fun onPullRequestCommentsEdited(number: Long) {
+        runInEdt {
+          val dataProvider = dataLoader.findDataProvider(number)
+          dataProvider?.timelineLoader?.loadMore(true)
         }
       }
     })
-    val securityService = GithubPullRequestsSecurityServiceImpl(sharedProjectSettings, accountDetails, repoDetails)
     val busyStateTracker = GithubPullRequestsBusyStateTrackerImpl()
-    val metadataService = GithubPullRequestsMetadataServiceImpl(progressManager, messageBus, requestExecutor, account.server,
-                                                                repoDetails.fullPath)
-    val stateService = GithubPullRequestsStateServiceImpl(project, progressManager, messageBus, dataLoader,
-                                                          busyStateTracker,
-                                                          requestExecutor, account.server, repoDetails.fullPath)
+    val metadataService = GithubPullRequestsMetadataServiceImpl(ProgressManager.getInstance(), messageBus, requestExecutor, account.server,
+                                                                repoWithPermissions.path, repoWithPermissions.owner)
+    val stateService = GithubPullRequestsStateServiceImpl(ProgressManager.getInstance(), messageBus,
+                                                          requestExecutor, account.server, repoWithPermissions.path)
 
-    return GHPullRequestsDataContext(gitRemoteCoordinates, GHRepositoryCoordinates(account.server, repoDetails.fullPath), account,
+    return GHPullRequestsDataContext(gitRemoteCoordinates, repositoryCoordinates, account,
                                      requestExecutor, messageBus, listModel, searchHolder, listLoader, dataLoader, securityService,
-                                     busyStateTracker, metadataService, stateService)
+                                     busyStateTracker, metadataService, stateService, reviewService, commentService)
   }
 
   companion object {

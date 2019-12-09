@@ -20,7 +20,7 @@ class GithubPullRequestCreateBranchAction : DumbAwareAction("Create New Local Br
                                                             null) {
   override fun update(e: AnActionEvent) {
     val project = e.getData(CommonDataKeys.PROJECT)
-    val selection = e.getData(GithubPullRequestKeys.ACTION_DATA_CONTEXT)?.selectedPullRequestDataProvider
+    val selection = e.getData(GithubPullRequestKeys.ACTION_DATA_CONTEXT)?.pullRequestDataProvider
     e.presentation.isEnabled = project != null && !project.isDefault && selection != null
   }
 
@@ -29,7 +29,7 @@ class GithubPullRequestCreateBranchAction : DumbAwareAction("Create New Local Br
     val context = e.getRequiredData(GithubPullRequestKeys.ACTION_DATA_CONTEXT)
     val repository = context.gitRepositoryCoordinates.repository
     val repositoryList = listOf(repository)
-    val dataProvider = context.selectedPullRequestDataProvider ?: return
+    val dataProvider = context.pullRequestDataProvider ?: return
 
     val options = GitBranchUtil.getNewBranchNameFromUser(project, listOf(repository),
                                                          "Create New Branch From Pull Request #${dataProvider.number}",
@@ -42,7 +42,7 @@ class GithubPullRequestCreateBranchAction : DumbAwareAction("Create New Local Br
 
         override fun run(indicator: ProgressIndicator) {
           val sha = GithubAsyncUtil.awaitFuture(indicator, dataProvider.detailsRequest).headRefOid
-          GithubAsyncUtil.awaitFuture(indicator, dataProvider.branchFetchRequest)
+          GithubAsyncUtil.awaitFuture(indicator, dataProvider.headBranchFetchRequest)
 
           indicator.text = "Creating branch"
           GitBranchWorker(project, git, GitBranchUiHandlerImpl(project, git, indicator))
@@ -65,7 +65,7 @@ class GithubPullRequestCreateBranchAction : DumbAwareAction("Create New Local Br
 
         override fun run(indicator: ProgressIndicator) {
           val sha = GithubAsyncUtil.awaitFuture(indicator, dataProvider.detailsRequest).headRefOid
-          GithubAsyncUtil.awaitFuture(indicator, dataProvider.branchFetchRequest)
+          GithubAsyncUtil.awaitFuture(indicator, dataProvider.headBranchFetchRequest)
 
           indicator.text = "Checking out branch"
           GitBranchWorker(project, git, GitBranchUiHandlerImpl(project, git, indicator))

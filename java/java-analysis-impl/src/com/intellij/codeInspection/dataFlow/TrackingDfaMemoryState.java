@@ -6,7 +6,6 @@ import com.intellij.codeInspection.dataFlow.instructions.ConditionalGotoInstruct
 import com.intellij.codeInspection.dataFlow.instructions.ExpressionPushingInstruction;
 import com.intellij.codeInspection.dataFlow.instructions.Instruction;
 import com.intellij.codeInspection.dataFlow.value.*;
-import com.intellij.codeInspection.dataFlow.value.DfaRelationValue.RelationType;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -396,8 +395,8 @@ public class TrackingDfaMemoryState extends DfaMemoryStateImpl {
     @Nullable
     PsiExpression getExpression() {
       if (myInstruction instanceof ExpressionPushingInstruction &&
-          ((ExpressionPushingInstruction)myInstruction).getExpressionRange() == null) {
-        return ((ExpressionPushingInstruction)myInstruction).getExpression();
+          ((ExpressionPushingInstruction<?>)myInstruction).getExpressionRange() == null) {
+        return ((ExpressionPushingInstruction<?>)myInstruction).getExpression();
       }
       if (myInstruction instanceof ConditionalGotoInstruction) {
         return ObjectUtils.tryCast(((ConditionalGotoInstruction)myInstruction).getPsiAnchor(), PsiExpression.class);

@@ -16,7 +16,7 @@ import java.util.concurrent.Executor;
 
 class MacEventReader {
   private static final int MAX_MESSAGE_LENGTH = 100;
-  private static final Logger LOG = Logger.getInstance("#com.intellij.notification.impl.MacEventReader");
+  private static final Logger LOG = Logger.getInstance(MacEventReader.class);
   private static final Notifications ourNotificationAdapter = new Notifications() {
     @Override
     public void notify(@NotNull Notification notification) {
@@ -67,8 +67,8 @@ class MacEventReader {
     private static final Executor ourService = ConcurrencyUtil.newSingleThreadExecutor("Mac event reader");
   }
 
-  public static class ProjectTracker {
-    public ProjectTracker(@NotNull final Project project) {
+  public static class MacProjectTracker {
+    public MacProjectTracker(@NotNull final Project project) {
       project.getMessageBus().connect().subscribe(Notifications.TOPIC, ourNotificationAdapter);
     }
   }

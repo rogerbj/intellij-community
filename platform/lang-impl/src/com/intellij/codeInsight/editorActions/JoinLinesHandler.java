@@ -30,6 +30,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.text.CharArrayUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,7 +42,7 @@ import java.util.List;
 import static com.intellij.codeInsight.editorActions.JoinLinesHandlerDelegate.CANNOT_JOIN;
 
 public class JoinLinesHandler extends EditorActionHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.JoinLinesHandler");
+  private static final Logger LOG = Logger.getInstance(JoinLinesHandler.class);
   private final EditorActionHandler myOriginalHandler;
 
   public JoinLinesHandler(EditorActionHandler originalHandler) {
@@ -340,7 +341,7 @@ public class JoinLinesHandler extends EditorActionHandler {
         RangeMarker marker = markers.get(i);
         if (!marker.isValid()) continue;
         int end = StringUtil.skipWhitespaceForward(text, marker.getStartOffset());
-        int spacesToCreate = end == text.length() || text.charAt(end) == '\n' ? 0 :
+        int spacesToCreate = end >= text.length() || text.charAt(end) == '\n' ? 0 :
                              model == null ? 1 : formatter.getSpacingForBlockAtOffset(model, end);
         spacesToAdd[i] = spacesToCreate < 0 ? 1 : spacesToCreate;
       }
@@ -361,6 +362,7 @@ public class JoinLinesHandler extends EditorActionHandler {
     }
   }
 
+  @Contract(pure = true)
   private static int checkOffset(int offset, JoinLinesHandlerDelegate delegate, DocumentEx doc) {
     if (offset == CANNOT_JOIN) return offset;
     if (offset < 0) {

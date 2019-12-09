@@ -13,6 +13,7 @@ import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.IntentionActionDelegate;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
+import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewUnsupportedOperationException;
 import com.intellij.codeInsight.lookup.LookupEx;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
@@ -23,8 +24,8 @@ import com.intellij.featureStatistics.FeatureUsageTrackerImpl;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.internal.statistic.collectors.fus.actions.persistence.IntentionsCollector;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.command.CommandProcessor;
@@ -34,6 +35,7 @@ import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -43,6 +45,8 @@ import com.intellij.util.PairProcessor;
 import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.awt.*;
 
 /**
  * @author mike
@@ -70,7 +74,6 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     final DaemonCodeAnalyzerImpl codeAnalyzer = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(project);
     letAutoImportComplete(editor, file, codeAnalyzer);
 
-    ShowIntentionsPass.IntentionsInfo intentions = ShowIntentionsPass.getActionsToShow(editor, file, true);
     IntentionsUI.getInstance(project).hide();
 
     if (HintManagerImpl.getInstanceImpl().performCurrentQuestionAction()) return;
@@ -83,9 +86,7 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     }
 
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
-    Editor finalEditor = editor;
-    PsiFile finalFile = file;
-    showIntentionHint(project, finalEditor, finalFile, intentions, showFeedbackOnEmptyMenu);
+    showIntentionHint(project, editor, file, calcIntentions(project, editor, file), showFeedbackOnEmptyMenu);
   }
 
   protected void showIntentionHint(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file, @NotNull ShowIntentionsPass.IntentionsInfo intentions, boolean showFeedbackOnEmptyMenu) {
@@ -98,6 +99,22 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     else if (showFeedbackOnEmptyMenu) {
       HintManager.getInstance().showInformationHint(editor, "No context actions available at this location");
     }
+  }
+
+  @NotNull
+  private static ShowIntentionsPass.IntentionsInfo calcIntentions(@NotNull Project project,
+                                                                  @NotNull Editor editor,
+                                                                  @NotNull PsiFile file) {
+    Component prevOwner = IdeFocusManager.getInstance(project).getFocusOwner();
+    ShowIntentionsPass.IntentionsInfo intentions = ActionUtil.underModalProgress(project, "Searching for Context Actions", () ->
+      ShowIntentionsPass.getActionsToShow(editor, file, false));
+    if (prevOwner != null) {
+      //todo remove this abomination after IDEA-227466 is fixed in a more general way
+      IdeFocusManager.getInstance(project).requestFocusInProject(prevOwner, project);
+    }
+
+    ShowIntentionsPass.getActionsToShowSync(editor, file, intentions);
+    return intentions;
   }
 
   private static void letAutoImportComplete(@NotNull Editor editor, @NotNull PsiFile file, DaemonCodeAnalyzerImpl codeAnalyzer) {
@@ -142,6 +159,10 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     catch (IndexNotReadyException e) {
       return false;
     }
+    catch (IntentionPreviewUnsupportedOperationException e) {
+      //check action availability can be invoked on a mock editor and may produce exceptions
+      return false;
+    }
     return true;
   }
 
@@ -150,24 +171,29 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
                                                                    @NotNull Editor hostEditor,
                                                                    @Nullable PsiFile injectedFile,
                                                                    @NotNull PairProcessor<? super PsiFile, ? super Editor> predicate) {
-    Editor editorToApply = null;
-    PsiFile fileToApply = null;
+    try {
+      Editor editorToApply = null;
+      PsiFile fileToApply = null;
 
-    Editor injectedEditor = null;
-    if (injectedFile != null) {
-      injectedEditor = InjectedLanguageUtil.getInjectedEditorForInjectedFile(hostEditor, injectedFile);
-      if (predicate.process(injectedFile, injectedEditor)) {
-        editorToApply = injectedEditor;
-        fileToApply = injectedFile;
+      Editor injectedEditor = null;
+      if (injectedFile != null) {
+        injectedEditor = InjectedLanguageUtil.getInjectedEditorForInjectedFile(hostEditor, injectedFile);
+        if (predicate.process(injectedFile, injectedEditor)) {
+          editorToApply = injectedEditor;
+          fileToApply = injectedFile;
+        }
       }
-    }
 
-    if (editorToApply == null && hostEditor != injectedEditor && predicate.process(hostFile, hostEditor)) {
-      editorToApply = hostEditor;
-      fileToApply = hostFile;
+      if (editorToApply == null && hostEditor != injectedEditor && predicate.process(hostFile, hostEditor)) {
+        editorToApply = hostEditor;
+        fileToApply = hostFile;
+      }
+      if (editorToApply == null) return null;
+      return Pair.create(fileToApply, editorToApply);
     }
-    if (editorToApply == null) return null;
-    return Pair.create(fileToApply, editorToApply);
+    catch (IntentionPreviewUnsupportedOperationException e) {
+      return null;
+    }
   }
 
   public static boolean chooseActionAndInvoke(@NotNull PsiFile hostFile,
@@ -192,8 +218,7 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     if (pair == null) return false;
 
     CommandProcessor.getInstance().executeCommand(project, () ->
-      TransactionGuard.getInstance().submitTransactionAndWait(
-        () -> invokeIntention(action, pair.second, pair.first)), text, null);
+      invokeIntention(action, pair.second, pair.first), text, null);
 
     checkPsiTextConsistency(hostFile);
 

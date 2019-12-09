@@ -60,7 +60,7 @@ import java.util.*;
 import static com.intellij.icons.AllIcons.Process.*;
 
 public class InfoAndProgressPanel extends JPanel implements CustomStatusBarWidget {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.wm.impl.status.InfoAndProgressPanel");
+  private static final Logger LOG = Logger.getInstance(InfoAndProgressPanel.class);
   private final ProcessPopup myPopup;
 
   private final StatusPanel myInfoPanel = new StatusPanel();
@@ -585,7 +585,9 @@ public class InfoAndProgressPanel extends JPanel implements CustomStatusBarWidge
 
     @Override
     public void layoutContainer(final Container parent) {
-      assert parent.getComponentCount() == 2; // 1. info; 2. progress
+      if (parent.getComponentCount() != 2) {
+        return; // e.g. project frame is closed
+      }
 
       Component infoPanel = parent.getComponent(0);
       Component progressPanel = parent.getComponent(1);
@@ -736,7 +738,6 @@ public class InfoAndProgressPanel extends JPanel implements CustomStatusBarWidge
       InplaceButton suspendButton = new InplaceButton("", AllIcons.Actions.Pause, e -> {
         ProgressSuspender suspender = getSuspender();
         if (suspender == null) {
-          LOG.assertTrue(myOriginal == null, "The process is expected to be finished at this point");
           return;
         }
 

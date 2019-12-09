@@ -34,6 +34,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsException;
@@ -78,7 +79,7 @@ import java.util.concurrent.locks.LockSupport;
  */
 @SuppressWarnings("UseOfSystemOutOrSystemErr")
 public class InspectionApplication implements CommandLineInspectionProgressReporter {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.InspectionApplication");
+  private static final Logger LOG = Logger.getInstance(InspectionApplication.class);
 
   public InspectionToolCmdlineOptionHelpProvider myHelpProvider;
   public String myProjectPath;
@@ -212,7 +213,8 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
           reportMessage(0, "modified file" + file.getPath());
         }
         try {
-          runAnalysisOnScope(parentDisposable, project, myInspectionProfile,
+          runAnalysisOnScope(projectPath,
+                             parentDisposable, project, myInspectionProfile,
                              new AnalysisScope(project, files));
         }
         catch (IOException e) {
@@ -240,7 +242,7 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
         scope = new AnalysisScope(Objects.requireNonNull(psiDirectory));
 
       }
-      runAnalysisOnScope(parentDisposable, project, myInspectionProfile, scope);
+      runAnalysisOnScope(projectPath, parentDisposable, project, myInspectionProfile, scope);
     }
   }
 
@@ -253,7 +255,8 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
     return context;
   }
 
-  private void runAnalysisOnScope(@NotNull Disposable parentDisposable,
+  private void runAnalysisOnScope(Path projectPath,
+                                  @NotNull Disposable parentDisposable,
                                   Project project,
                                   InspectionProfileImpl inspectionProfile, AnalysisScope scope)
     throws IOException {
@@ -291,24 +294,31 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
       }
     }
 
-    for (CommandLineInspectionProjectConfigurator configurator : CommandLineInspectionProjectConfigurator.EP_NAME.getIterable()) {
-      configurator.configureProject(project, scope, this);
-    }
+    runAnalysis(project, projectPath, inspectionProfile, scope, reportConverter, resultsDataPath);
+  }
 
-    runAnalysis(project, inspectionProfile, scope, reportConverter, resultsDataPath);
+  private void configureProject(Path projectPath, Project project, AnalysisScope scope) {
+    for (CommandLineInspectionProjectConfigurator configurator : CommandLineInspectionProjectConfigurator.EP_NAME.getIterable()) {
+      if (configurator.isApplicable(projectPath, this)) {
+        configurator.configureProject(project, scope, this);
+      }
+    }
   }
 
   private void runAnalysis(Project project,
+                           Path projectPath,
                            InspectionProfileImpl inspectionProfile,
-                           AnalysisScope scope, InspectionsReportConverter reportConverter, Path resultsDataPath) throws IOException {
+                           AnalysisScope scope,
+                           InspectionsReportConverter reportConverter,
+                           Path resultsDataPath) throws IOException {
     GlobalInspectionContextImpl context = createGlobalInspectionContext(project);
     if (myAnalyzeChanges) {
-      scope = runFirstStage(project, createGlobalInspectionContext(project), scope, resultsDataPath);
+      scope = runAnalysisOnCodeWithoutChanges(project, projectPath, createGlobalInspectionContext(project), scope, resultsDataPath);
       setupSecondAnalysisHandler(project, context);
     }
 
     final List<Path> inspectionsResults = new ArrayList<>();
-    runUnderProgress(project, context, scope, resultsDataPath, inspectionsResults);
+    runUnderProgress(project, projectPath, context, scope, resultsDataPath, inspectionsResults);
     final Path descriptionsFile = resultsDataPath.resolve(DESCRIPTIONS + XML_EXTENSION);
     describeInspections(descriptionsFile,
                         myRunWithEditorSettings ? null : inspectionProfile.getName(),
@@ -327,7 +337,11 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
   }
 
   @NotNull
-  private AnalysisScope runFirstStage(Project project, GlobalInspectionContextImpl context, AnalysisScope scope, Path resultsDataPath) {
+  private AnalysisScope runAnalysisOnCodeWithoutChanges(Project project,
+                                                        Path projectPath,
+                                                        GlobalInspectionContextImpl context,
+                                                        AnalysisScope scope,
+                                                        Path resultsDataPath) {
     VirtualFile[] changes = ChangesUtil.getFilesFromChanges(ChangeListManager.getInstance(project).getAllChanges());
     setupFirstAnalysisHandler(context);
     final List<Path> inspectionsResults = new ArrayList<>();
@@ -350,7 +364,7 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
       createProcessIndicator(),
       () -> {
         syncProject(project, changes);
-        runUnderProgress(project, context, scope, resultsDataPath, inspectionsResults);
+        runUnderProgress(project, projectPath, context, scope, resultsDataPath, inspectionsResults);
       }
     );
     syncProject(project, changes);
@@ -485,20 +499,18 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
   }
 
   private void runUnderProgress(@NotNull Project project,
-                                @NotNull GlobalInspectionContextImpl context,
+                                Path projectPath, @NotNull GlobalInspectionContextImpl context,
                                 @NotNull AnalysisScope scope,
                                 @NotNull Path resultsDataPath,
                                 @NotNull List<? super Path> inspectionsResults) {
     ProgressManager.getInstance().runProcess(() -> {
-      for (CommandLineInspectionProjectConfigurator configurator : CommandLineInspectionProjectConfigurator.EP_NAME.getIterable()) {
-        configurator.configureProject(project, scope, this);
-      }
+      configureProject(projectPath, project, scope);
 
       if (!GlobalInspectionContextUtil.canRunInspections(project, false)) {
         gracefulExit();
         return;
       }
-      context.launchInspectionsOffline(scope, resultsDataPath.toString(), myRunGlobalToolsOnly, inspectionsResults);
+      context.launchInspectionsOffline(scope, resultsDataPath, myRunGlobalToolsOnly, inspectionsResults);
       reportMessage(1, "\n" + InspectionsBundle.message("inspection.capitalized.done") + "\n");
       if (!myErrorCodeRequired) {
         closeProject(project);
@@ -571,10 +583,7 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
 
   private static void closeProject(@NotNull Project project) {
     if (!project.isDisposed()) {
-      // see PlatformTestUtil.forceCloseProjectWithoutSaving about why we don't dispose as part of forceCloseProject
-      ProjectManagerEx.getInstanceEx().forceCloseProject(project, false /* do not dispose */);
-      // explicitly dispose because `dispose` option for forceCloseProject doesn't work todo why?
-      ApplicationManager.getApplication().runWriteAction(() -> Disposer.dispose(project));
+      ProjectManagerEx.getInstanceEx().forceCloseProject(project);
     }
   }
 
@@ -651,12 +660,9 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
 
   @Nullable
   private static InspectionsReportConverter getReportConverter(@Nullable final String outputFormat) {
-    for (InspectionsReportConverter converter : InspectionsReportConverter.EP_NAME.getExtensions()) {
-      if (converter.getFormatName().equals(outputFormat)) {
-        return converter;
-      }
-    }
-    return null;
+    return InspectionsReportConverter.EP_NAME.getExtensionList().stream()
+      .filter(converter -> converter.getFormatName().equals(outputFormat))
+      .findFirst().orElse(null);
   }
 
   private ConversionListener createConversionListener() {
@@ -691,10 +697,8 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
 
   @Nullable
   private static String getPrefix(final String text) {
-    //noinspection HardCodedStringLiteral
     int idx = text.indexOf(" in ");
     if (idx == -1) {
-      //noinspection HardCodedStringLiteral
       idx = text.indexOf(" of ");
     }
 
@@ -738,6 +742,7 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
       if (name != null) {
         xmlWriter.addAttribute(PROFILE, name);
       }
+      List<String> inspectionsWithoutDescriptions = new ArrayList<>(1);
       for (Map.Entry<String, Set<InspectionToolWrapper>> entry : map.entrySet()) {
         xmlWriter.startNode("group");
         String groupName = entry.getKey();
@@ -755,13 +760,17 @@ public class InspectionApplication implements CommandLineInspectionProgressRepor
             xmlWriter.setValue(description);
           }
           else {
-            LOG.error(shortName + " descriptionUrl==" + toolWrapper);
+            inspectionsWithoutDescriptions.add(shortName);
           }
           xmlWriter.endNode();
         }
         xmlWriter.endNode();
       }
       xmlWriter.endNode();
+
+      if (!inspectionsWithoutDescriptions.isEmpty()) {
+        LOG.error("Descriptions are missed for tools: " + StringUtil.join(inspectionsWithoutDescriptions, ", "));
+      }
     }
   }
 

@@ -13,11 +13,13 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.*;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.AbstractVcs;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.*;
@@ -52,12 +54,14 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.util.List;
 import java.util.*;
+import java.util.stream.Stream;
 
 import static com.intellij.openapi.util.text.StringUtil.escapeXmlEntities;
 import static com.intellij.openapi.vcs.VcsBundle.message;
 import static com.intellij.ui.components.JBBox.createHorizontalBox;
 import static com.intellij.util.ArrayUtil.isEmpty;
-import static com.intellij.util.containers.ContainerUtil.*;
+import static com.intellij.util.containers.ContainerUtil.filter;
+import static com.intellij.util.containers.ContainerUtil.map;
 import static com.intellij.util.ui.JBUI.Borders.emptyLeft;
 import static com.intellij.util.ui.SwingHelper.buildHtml;
 import static com.intellij.util.ui.UIUtil.*;
@@ -67,7 +71,6 @@ import static com.intellij.vcs.commit.SingleChangeListCommitWorkflowKt.getPresen
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Arrays.asList;
-import static java.util.Collections.emptyList;
 import static java.util.Collections.*;
 
 public abstract class CommitChangeListDialog extends DialogWrapper implements SingleChangeListCommitWorkflowUi, ComponentContainer {
@@ -189,13 +192,11 @@ public abstract class CommitChangeListDialog extends DialogWrapper implements Si
     Set<AbstractVcs> affectedVcses = new HashSet<>();
     if (forceCommitInVcs != null) affectedVcses.add(forceCommitInVcs);
     for (LocalChangeList list : changeLists) {
-      //noinspection unchecked
-      affectedVcses.addAll((Set)ChangesUtil.getAffectedVcses(list.getChanges(), project));
+      affectedVcses.addAll(ChangesUtil.getAffectedVcses(list.getChanges(), project));
     }
     if (showVcsCommit) {
       List<VirtualFile> unversionedFiles = ChangeListManagerImpl.getInstanceImpl(project).getUnversionedFiles();
-      //noinspection unchecked
-      affectedVcses.addAll((Set)ChangesUtil.getAffectedVcsesForFiles(unversionedFiles, project));
+      affectedVcses.addAll(ChangesUtil.getAffectedVcsesForFiles(unversionedFiles, project));
     }
 
 
@@ -310,6 +311,8 @@ public abstract class CommitChangeListDialog extends DialogWrapper implements Si
     }
 
     showDetailsIfSaved();
+
+    LaterInvocator.markTransparent(ModalityState.stateForComponent(getComponent()));
   }
 
   @NotNull
@@ -665,13 +668,13 @@ public abstract class CommitChangeListDialog extends DialogWrapper implements Si
 
   @NotNull
   @Override
-  public List<VirtualFile> getDisplayedUnversionedFiles() {
+  public List<FilePath> getDisplayedUnversionedFiles() {
     return getBrowser().getDisplayedUnversionedFiles();
   }
 
   @NotNull
   @Override
-  public List<VirtualFile> getIncludedUnversionedFiles() {
+  public List<FilePath> getIncludedUnversionedFiles() {
     return getBrowser().getIncludedUnversionedFiles();
   }
 
@@ -781,13 +784,13 @@ public abstract class CommitChangeListDialog extends DialogWrapper implements Si
 
     @NotNull
     @Override
-    protected List<Wrapper> getSelectedChanges() {
+    protected Stream<Wrapper> getSelectedChanges() {
       return wrap(getBrowser().getSelectedChanges(), getBrowser().getSelectedUnversionedFiles());
     }
 
     @NotNull
     @Override
-    protected List<Wrapper> getAllChanges() {
+    protected Stream<Wrapper> getAllChanges() {
       return wrap(getDisplayedChanges(), getDisplayedUnversionedFiles());
     }
 
@@ -796,16 +799,12 @@ public abstract class CommitChangeListDialog extends DialogWrapper implements Si
       getBrowser().selectEntries(singletonList(change.getUserObject()));
     }
 
-    @Override
-    protected boolean hasSelection() {
-      CommitDialogChangesBrowser browser = getBrowser();
-      return !browser.getSelectedChanges().isEmpty() || !browser.getSelectedUnversionedFiles().isEmpty();
-    }
-
     @NotNull
-    private List<Wrapper> wrap(@NotNull Collection<? extends Change> changes, @NotNull Collection<? extends VirtualFile> unversioned) {
-      return concat(map(changes, ChangeWrapper::new),
-                    map(unversioned, UnversionedFileWrapper::new));
+    private Stream<Wrapper> wrap(@NotNull Collection<? extends Change> changes, @NotNull Collection<? extends FilePath> unversioned) {
+      return Stream.concat(
+        changes.stream().map(ChangeWrapper::new),
+        unversioned.stream().map(UnversionedFileWrapper::new)
+      );
     }
 
     @Override

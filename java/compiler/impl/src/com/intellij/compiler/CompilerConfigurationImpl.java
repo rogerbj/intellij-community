@@ -67,7 +67,7 @@ import static org.jetbrains.jps.model.serialization.java.compiler.JpsJavaCompile
 
 @State(name = "CompilerConfiguration", storages = @Storage("compiler.xml"))
 public class CompilerConfigurationImpl extends CompilerConfiguration implements PersistentStateComponent<Element>, ProjectComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.compiler.CompilerConfiguration");
+  private static final Logger LOG = Logger.getInstance(CompilerConfiguration.class);
 
   public static final String TESTS_EXTERNAL_COMPILER_HOME_PROPERTY_NAME = "tests.external.compiler.home";
   public static final int DEFAULT_BUILD_PROCESS_HEAP_SIZE = 700;
@@ -107,7 +107,7 @@ public class CompilerConfigurationImpl extends CompilerConfiguration implements 
   public CompilerConfigurationImpl(Project project) {
     myProject = project;
     myExcludesConfiguration = createExcludedEntriesConfiguration(project);
-    MessageBusConnection connection = project.getMessageBus().connect(project);
+    MessageBusConnection connection = project.getMessageBus().connect();
     connection.subscribe(ProjectTopics.MODULES, new ModuleListener() {
       @Override
       public void beforeModuleRemoved(@NotNull Project project, @NotNull Module module) {

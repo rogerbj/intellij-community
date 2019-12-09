@@ -79,7 +79,7 @@ public class PyNames {
   }
 
   public static final String INIT = "__init__";
-  public static final String DICT = "__dict__";
+  public static final String DUNDER_DICT = "__dict__";
   public static final String DOT_PY = ".py";
   public static final String DOT_PYI = ".pyi";
   public static final String INIT_DOT_PY = INIT + DOT_PY;
@@ -158,6 +158,7 @@ public class PyNames {
   public static final String ABC_SET = "Set";
   public static final String ABC_MUTABLE_SET = "MutableSet";
   public static final String PATH_LIKE = "PathLike";
+  public static final String BUILTIN_PATH_LIKE = "_PathLike";
 
   public static final String AWAITABLE = "Awaitable";
   public static final String ASYNC_ITERABLE = "AsyncIterable";
@@ -220,11 +221,16 @@ public class PyNames {
   public static final String TUPLE = "tuple";
   public static final String SET = "set";
   public static final String SLICE = "slice";
+  public static final String DICT = "dict";
 
   public static final String KEYS = "keys";
   public static final String APPEND = "append";
   public static final String EXTEND = "extend";
   public static final String UPDATE = "update";
+  public static final String CLEAR = "clear";
+  public static final String POP = "pop";
+  public static final String POPITEM = "popitem";
+  public static final String SETDEFAULT = "setdefault";
 
   public static final String PASS = "pass";
 

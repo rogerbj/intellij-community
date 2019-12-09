@@ -19,11 +19,13 @@ import com.intellij.execution.util.JavaParametersUtil;
 import com.intellij.execution.util.ProgramParametersUtil;
 import com.intellij.jarRepository.JarRepositoryManager;
 import com.intellij.junit4.JUnit4IdeaTestRunner;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.PossiblyDumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
@@ -55,7 +57,6 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
 import com.intellij.util.PathsList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.BaseOutputReader;
 import com.intellij.util.text.VersionComparatorUtil;
 import com.siyeh.ig.junit.JUnitCommonClassNames;
 import org.jetbrains.annotations.NotNull;
@@ -73,11 +74,13 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.stream.Stream;
 
-public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitConfiguration> {
+public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitConfiguration> implements PossiblyDumbAware {
   protected static final Logger LOG = Logger.getInstance(TestObject.class);
 
   private static final String DEBUG_RT_PATH = "idea.junit_rt.path";
   private static final String JUNIT_TEST_FRAMEWORK_NAME = "JUnit";
+
+  private static final String DEFAULT_RUNNER = "default";
 
   private final JUnitConfiguration myConfiguration;
   protected File myListenersFile;
@@ -260,7 +263,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     }
 
     String preferredRunner = getRunner();
-    if (preferredRunner != null) {
+    if (!DEFAULT_RUNNER.equals(preferredRunner)) {
       javaParameters.getProgramParametersList().add(preferredRunner);
     }
 
@@ -404,13 +407,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     appendForkInfo(executor);
     appendRepeatMode();
 
-    OSProcessHandler processHandler = new KillableColoredProcessHandler(createCommandLine()) {
-      @NotNull
-      @Override
-      protected BaseOutputReader.Options readerOptions() {
-        return BaseOutputReader.Options.forMostlySilentProcess();
-      }
-    };
+    OSProcessHandler processHandler = new KillableColoredProcessHandler.Silent(createCommandLine());
     ProcessTerminatedListener.attach(processHandler);
     final SearchForTestsTask searchForTestsTask = createSearchingForTestsTask();
     if (searchForTestsTask != null) {
@@ -543,6 +540,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
 
   private String myRunner;
 
+  @NotNull
   protected String getRunner() {
     if (myRunner == null) {
       myRunner = getRunnerInner();
@@ -550,10 +548,13 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     return myRunner;
   }
 
+  @NotNull
   private String getRunnerInner() {
+    Project project = myConfiguration.getProject();
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    LOG.assertTrue(!DumbService.getInstance(project).isAlternativeResolveEnabled());
     final GlobalSearchScope globalSearchScope = getScopeForJUnit(myConfiguration);
     JUnitConfiguration.Data data = myConfiguration.getPersistentData();
-    Project project = myConfiguration.getProject();
     boolean isMethodConfiguration = JUnitConfiguration.TEST_METHOD.equals(data.TEST_OBJECT);
     boolean isClassConfiguration = JUnitConfiguration.TEST_CLASS.equals(data.TEST_OBJECT);
     final PsiClass psiClass = isMethodConfiguration || isClassConfiguration
@@ -576,7 +577,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
       }
       return JUnitStarter.JUNIT3_PARAMETER;
     }
-    return JUnitUtil.isJUnit5(globalSearchScope, project) || isCustomJUnit5(globalSearchScope) ? JUnitStarter.JUNIT5_PARAMETER : null;
+    return JUnitUtil.isJUnit5(globalSearchScope, project) || isCustomJUnit5(globalSearchScope) ? JUnitStarter.JUNIT5_PARAMETER : DEFAULT_RUNNER;
   }
 
   private boolean isCustomJUnit5(GlobalSearchScope globalSearchScope) {
@@ -594,11 +595,11 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
   private boolean findCustomJUnit5TestEngineUsingClassLoader(@NotNull GlobalSearchScope globalSearchScope,
                                                              @NotNull Project project,
                                                              @NotNull JavaPsiFacade psiFacade) {
-    PsiClass testEngine = DumbService.getInstance(project).computeWithAlternativeResolveEnabled(() -> {
-      @Nullable PsiClass e = ReadAction.compute(() -> psiFacade.findClass(JUnitCommonClassNames.ORG_JUNIT_PLATFORM_ENGINE_TEST_ENGINE, globalSearchScope));
-      return e;
-    });
-    if (testEngine == null) return false;
+    boolean hasPlatformEngine = ReadAction.compute(() -> {
+        PsiPackage aPackage = psiFacade.findPackage(JUnitCommonClassNames.ORG_JUNIT_PLATFORM_ENGINE);
+        return aPackage != null && aPackage.getDirectories(globalSearchScope).length > 0;
+      });
+    if (!hasPlatformEngine) return false;
     ClassLoader loader = TestClassCollector.createUsersClassLoader(myConfiguration);
     try {
       ServiceLoader<?>
@@ -634,5 +635,10 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
   private static boolean isCustomJunit5TestEngineName(@Nullable String engineImplClassName) {
     return !"org.junit.jupiter.engine.JupiterTestEngine".equals(engineImplClassName) &&
            !"org.junit.vintage.engine.VintageTestEngine".equals(engineImplClassName);
+  }
+
+  @Override
+  public boolean isDumbAware() {
+    return !JavaSdkUtil.isJdkAtLeast(getJdk(), JavaSdkVersion.JDK_1_9);
   }
 }

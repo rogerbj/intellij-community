@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 import static java.util.stream.Collectors.toSet;
 
 public class ImportHelper{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.codeStyle.ImportHelper");
+  private static final Logger LOG = Logger.getInstance(ImportHelper.class);
 
   private final JavaCodeStyleSettings mySettings;
   @NonNls private static final String JAVA_LANG_PACKAGE = "java.lang";
@@ -228,7 +228,7 @@ public class ImportHelper{
                                                @NotNull final Set<String> onDemandImports) {
     final GlobalSearchScope resolveScope = file.getResolveScope();
     final String thisPackageName = file.getPackageName();
-    final Set<String> implicitlyImportedPackages = new THashSet<>(Arrays.asList(file.getImplicitlyImportedPackages()));
+    final Set<String> implicitlyImportedPackages = ContainerUtil.set(file.getImplicitlyImportedPackages());
     final PsiManager manager = file.getManager();
     JavaPsiFacade facade = JavaPsiFacade.getInstance(manager.getProject());
 
@@ -651,7 +651,7 @@ public class ImportHelper{
         // check if that short name referenced in the file
         file.accept(new JavaRecursiveElementWalkingVisitor() {
           @Override
-          public void visitElement(PsiElement element) {
+          public void visitElement(@NotNull PsiElement element) {
             if (foundRef[0]) return;
             super.visitElement(element);
           }

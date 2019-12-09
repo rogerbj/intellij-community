@@ -13,13 +13,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.popup.util.PopupUtil;
-import com.intellij.openapi.util.BooleanGetter;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.WindowState;
-import com.intellij.openapi.util.WindowStateService;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.*;
+import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.openapi.wm.ex.IdeFrameEx;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.openapi.wm.impl.IdeFrameDecorator;
@@ -49,7 +46,6 @@ import java.util.List;
 import java.util.Map;
 
 public class FrameWrapper implements Disposable, DataProvider {
-
   private String myDimensionKey;
   private JComponent myComponent = null;
   private JComponent myPreferredFocus = null;
@@ -262,7 +258,7 @@ public class FrameWrapper implements Disposable, DataProvider {
     assert !myDisposed : "Already disposed!";
 
     if (myFrame == null) {
-      final IdeFrame parent = WindowManager.getInstance().getIdeFrame(myProject);
+      IdeFrame parent = WindowManager.getInstance().getIdeFrame(myProject);
       myFrame = myIsDialog ? createJDialog(parent) : createJFrame(parent);
     }
     return myFrame;
@@ -373,7 +369,7 @@ public class FrameWrapper implements Disposable, DataProvider {
       }
 
       MouseGestureManager.getInstance().add(this);
-      setFocusTraversalPolicy(new LayoutFocusTraversalPolicy());
+      setFocusTraversalPolicy(new IdeFocusTraversalPolicy());
     }
 
     @Override
@@ -410,12 +406,21 @@ public class FrameWrapper implements Disposable, DataProvider {
     @NotNull
     @Override
     public Rectangle suggestChildFrameBounds() {
-      return myParent.suggestChildFrameBounds();
+      return myParent != null ? myParent.suggestChildFrameBounds() : getOnScreenBounds();
+    }
+
+    private static Rectangle getOnScreenBounds() {
+      Rectangle r = GraphicsEnvironment.getLocalGraphicsEnvironment()
+        .getDefaultScreenDevice()
+        .getDefaultConfiguration()
+        .getBounds();
+      int margin = r.width / 20; // 1/20th or 5% from each side
+      return new Rectangle(r.x + margin, r.y + margin, r.width - margin * 2, r.height - margin * 2);
     }
 
     @Override
     public Project getProject() {
-      return myParent.getProject();
+      return myParent != null ? myParent.getProject() : ProjectManager.getInstance().getDefaultProject();
     }
 
     @Override
@@ -479,14 +484,14 @@ public class FrameWrapper implements Disposable, DataProvider {
     private final IdeFrame myParent;
 
     private MyJDialog(FrameWrapper owner, IdeFrame parent) throws HeadlessException {
-      super((JFrame)parent);
+      super(UIUtil.getWindow(parent.getComponent()));
       myOwner = owner;
       myParent = parent;
       setGlassPane(new IdeGlassPaneImpl(getRootPane()));
       getRootPane().putClientProperty("Window.style", "small");
       setBackground(UIUtil.getPanelBackground());
       MouseGestureManager.getInstance().add(this);
-      setFocusTraversalPolicy(new LayoutFocusTraversalPolicy());
+      setFocusTraversalPolicy(new IdeFocusTraversalPolicy());
     }
 
     @Override

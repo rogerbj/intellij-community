@@ -30,6 +30,7 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Query;
+import com.siyeh.ig.psiutils.VariableAccessUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -355,7 +356,7 @@ public class NullityInferrer {
     private boolean sometimesNull;
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (sometimesNull) return;
       super.visitElement(element);
     }
@@ -512,7 +513,7 @@ public class NullityInferrer {
           public void visitLambdaExpression(PsiLambdaExpression expression) {}
 
           @Override
-          public void visitElement(PsiElement element) {
+          public void visitElement(@NotNull PsiElement element) {
             if (sometimesReturnsNull[0]) return;
             super.visitElement(element);
           }
@@ -573,22 +574,18 @@ public class NullityInferrer {
         final PsiMethod method = (PsiMethod)grandParent;
         if (method.getBody() != null) {
 
-          for (PsiReference reference : ReferencesSearch.search(parameter, new LocalSearchScope(method))) {
-            final PsiElement place = reference.getElement();
-            if (place instanceof PsiReferenceExpression) {
-              final PsiReferenceExpression expr = (PsiReferenceExpression)place;
-              final PsiElement parent = PsiTreeUtil.skipParentsOfType(expr, PsiParenthesizedExpression.class, PsiTypeCastExpression.class);
-              if (processParameter(parameter, expr, parent)) return;
-              if (isNotNull(method)) {
-                PsiElement toReturn = parent;
-                if (parent instanceof PsiConditionalExpression &&
-                    ((PsiConditionalExpression)parent).getCondition() != expr) {  //todo check conditional operations
-                  toReturn = parent.getParent();
-                }
-                if (toReturn instanceof PsiReturnStatement) {
-                  registerNotNullAnnotation(parameter);
-                  return;
-                }
+          for (PsiReferenceExpression expr : VariableAccessUtils.getVariableReferences(parameter, method)) {
+            final PsiElement parent = PsiTreeUtil.skipParentsOfType(expr, PsiParenthesizedExpression.class, PsiTypeCastExpression.class);
+            if (processParameter(parameter, expr, parent)) return;
+            if (isNotNull(method)) {
+              PsiElement toReturn = parent;
+              if (parent instanceof PsiConditionalExpression &&
+                  ((PsiConditionalExpression)parent).getCondition() != expr) {  //todo check conditional operations
+                toReturn = parent.getParent();
+              }
+              if (toReturn instanceof PsiReturnStatement) {
+                registerNotNullAnnotation(parameter);
+                return;
               }
             }
           }

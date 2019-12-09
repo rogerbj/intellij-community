@@ -8,17 +8,21 @@ import com.intellij.execution.configuration.ConfigurationFactoryEx
 import com.intellij.execution.configurations.*
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.execution.runners.ExecutionUtil
+import com.intellij.execution.runners.ProgramRunner
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.runAndLogException
+import com.intellij.openapi.extensions.ExtensionPointListener
+import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.extensions.ProjectExtensionPointName
 import com.intellij.openapi.options.SchemeManager
 import com.intellij.openapi.options.SchemeManagerFactory
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.impl.ProjectManagerImpl
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.UnknownFeaturesCollector
@@ -565,11 +569,49 @@ open class RunManagerImpl @JvmOverloads constructor(val project: Project, shared
     projectSchemeManager.reload()
   }
 
+  protected open fun addExtensionPointListeners() {
+    if (ProjectManagerImpl.isLight(project)) {
+      return
+    }
+
+    ConfigurationType.CONFIGURATION_TYPE_EP.addExtensionPointListener(object : ExtensionPointListener<ConfigurationType> {
+      override fun extensionAdded(extension: ConfigurationType, pluginDescriptor: PluginDescriptor) {
+        idToType.drop()
+        project.stateStore.reloadState(RunManagerImpl::class.java)
+      }
+
+      override fun extensionRemoved(extension: ConfigurationType, pluginDescriptor: PluginDescriptor) {
+        idToType.drop()
+        for (settings in idToSettings.values) {
+          settings as RunnerAndConfigurationSettingsImpl
+          if (settings.type == extension) {
+            val configuration = UnknownConfigurationType.getInstance().createTemplateConfiguration(project)
+            configuration.name = settings.configuration.name
+            settings.setConfiguration(configuration)
+          }
+        }
+      }
+    }, this)
+
+    ProgramRunner.PROGRAM_RUNNER_EP.addExtensionPointListener(object : ExtensionPointListener<ProgramRunner<*>> {
+      override fun extensionRemoved(extension: ProgramRunner<*>, pluginDescriptor: PluginDescriptor) {
+        for (runnerAndConfigurationSettings in allSettings) {
+          val settingsImpl = runnerAndConfigurationSettings as RunnerAndConfigurationSettingsImpl
+          settingsImpl.handleRunnerRemoved(extension)
+        }
+      }
+    }, project)
+  }
+
   override fun noStateLoaded() {
-    isFirstLoadState.set(false)
+    val first = isFirstLoadState.getAndSet(false)
     loadSharedRunConfigurations()
     runConfigurationFirstLoaded()
-    eventPublisher.stateLoaded(this, true)
+    eventPublisher.stateLoaded(this, first)
+
+    if (first) {
+      addExtensionPointListeners()
+    }
   }
 
   override fun loadState(parentNode: Element) {
@@ -647,6 +689,10 @@ open class RunManagerImpl @JvmOverloads constructor(val project: Project, shared
     }
 
     eventPublisher.stateLoaded(this, isFirstLoadState)
+
+    if (isFirstLoadState) {
+      addExtensionPointListeners()
+    }
   }
 
   private fun loadSharedRunConfigurations() {

@@ -723,8 +723,8 @@ public class PydevConsoleRunnerImpl implements PydevConsoleRunner {
           private final SplitLineAction mySplitLineAction = new SplitLineAction();
 
           @Override
-          public boolean isEnabled(Editor editor, DataContext dataContext) {
-            return mySplitLineAction.getHandler().isEnabled(editor, dataContext);
+          public boolean isEnabledForCaret(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
+            return mySplitLineAction.getHandler().isEnabled(editor, caret, dataContext);
           }
 
           @Override
@@ -822,8 +822,10 @@ public class PydevConsoleRunnerImpl implements PydevConsoleRunner {
 
   @Nullable
   private static String getConsoleDisplayName(@NotNull Project project) {
-    final PythonConsoleToolWindow toolWindow = PythonConsoleToolWindow.getInstance(project);
-    final Content content = toolWindow.getToolWindow().getContentManager().getSelectedContent();
+    PythonConsoleToolWindow toolWindow = PythonConsoleToolWindow.getInstance(project);
+    ToolWindow window = toolWindow.getToolWindow();
+    if (window == null) return null;
+    final Content content = window.getContentManager().getSelectedContent();
     if (content == null) return null;
     return content.getDisplayName();
   }

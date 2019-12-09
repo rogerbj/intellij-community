@@ -298,7 +298,7 @@ public class DependencyResolverImpl implements DependencyResolver {
                                       Map<File, Integer> runtimeClasspathOrder,
                                       ExternalDependency dependency) {
     String scope = dependency.getScope();
-    Map<File, Integer> classpathOrderMap = scope == CompileDependenciesProvider.SCOPE ? compileClasspathOrder :
+    Map<File, Integer> classpathOrderMap = scope == CompileDependenciesProvider.SCOPE || scope == PROVIDED_SCOPE ? compileClasspathOrder :
                                            scope == RuntimeDependenciesProvider.SCOPE ? runtimeClasspathOrder : null;
     final Collection<File> depFiles = getFiles(dependency);
     int order = getOrder(classpathOrderMap, depFiles);
@@ -527,9 +527,24 @@ public class DependencyResolverImpl implements DependencyResolver {
                                       @NotNull ExternalDependency nextDependency) {
     Collection<File> seenFiles = getFiles(seenDependency);
     Collection<File> nextFiles = getFiles(nextDependency);
-    return seenFiles.containsAll(nextFiles);
+    boolean filesSeen = seenFiles.containsAll(nextFiles);
+    boolean projectDependencySeen = compareAsProjectDependencies(seenDependency, nextDependency);
+
+    return filesSeen || projectDependencySeen;
   }
 
+  private static boolean compareAsProjectDependencies(@NotNull ExternalDependency seenDependency,
+                                               @NotNull ExternalDependency newDependency) {
+    if (seenDependency instanceof ExternalProjectDependency
+    && newDependency instanceof ExternalProjectDependency) {
+      String seenConfiguration = ((ExternalProjectDependency)seenDependency).getConfigurationName();
+      String newConfiguration = ((ExternalProjectDependency)newDependency).getConfigurationName();
+      return
+        seenDependency.getId().equals(newDependency.getId())
+      && ((seenConfiguration == newConfiguration) || (seenConfiguration != null && seenConfiguration.equals(newConfiguration)));
+    }
+    return false;
+  }
 
   private static void upgradeScopeIfNeeded(@NotNull ExternalDependency targetDependency, @NotNull String newScope) {
     if (targetDependency.getScope().equals(COMPILE_SCOPE) || !(targetDependency instanceof AbstractExternalDependency)) {

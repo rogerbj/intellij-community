@@ -18,9 +18,10 @@ package com.intellij.codeInsight.guess.impl;
 import com.intellij.codeInsight.guess.GuessManager;
 import com.intellij.codeInspection.dataFlow.*;
 import com.intellij.codeInspection.dataFlow.instructions.*;
+import com.intellij.codeInspection.dataFlow.value.DfaCondition;
 import com.intellij.codeInspection.dataFlow.value.DfaInstanceofValue;
-import com.intellij.codeInspection.dataFlow.value.DfaRelationValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
+import com.intellij.codeInspection.dataFlow.value.RelationType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
@@ -344,7 +345,7 @@ public class GuessManagerImpl extends GuessManager {
       GuessTypeVisitor visitor = tryGuessingTypeWithoutDfa(place, honorAssignments);
       if (!visitor.isDfaNeeded()) {
         result = visitor.mySpecificType == null ?
-                 Collections.emptyList() : Collections.singletonList(tryGenerify(expr, visitor.mySpecificType));
+                 Collections.emptyList() : Collections.singletonList(DfaPsiUtil.tryGenerify(expr, visitor.mySpecificType));
       }
     }
     if (result == null) {
@@ -386,24 +387,9 @@ public class GuessManagerImpl extends GuessManager {
   private static List<PsiType> flattenConjuncts(@NotNull PsiExpression expr, Collection<PsiType> conjuncts) {
     if (!conjuncts.isEmpty()) {
       Set<PsiType> flatTypes = PsiIntersectionType.flatten(conjuncts.toArray(PsiType.EMPTY_ARRAY), new LinkedHashSet<>());
-      return ContainerUtil.mapNotNull(flatTypes, type -> tryGenerify(expr, type));
+      return ContainerUtil.mapNotNull(flatTypes, type -> DfaPsiUtil.tryGenerify(expr, type));
     }
     return Collections.emptyList();
-  }
-
-  private static PsiType tryGenerify(PsiExpression expression, PsiType type) {
-    if (!(type instanceof PsiClassType)) {
-      return type;
-    }
-    PsiClassType classType = (PsiClassType)type;
-    if (!classType.isRaw()) {
-      return classType;
-    }
-    PsiClass psiClass = classType.resolve();
-    if (psiClass == null) return classType;
-    PsiType expressionType = expression.getType();
-    if (!(expressionType instanceof PsiClassType)) return classType;
-    return GenericsUtil.getExpectedGenericType(expression, psiClass, (PsiClassType)expressionType);
   }
 
   private static class GuessTypeVisitor extends JavaElementVisitor {
@@ -533,8 +519,8 @@ public class GuessManagerImpl extends GuessManager {
       }
       DfaValue type = memState.pop();
       DfaValue operand = memState.pop();
-      DfaValue relation = runner.getFactory().createCondition(operand, DfaRelationValue.RelationType.IS, type);
-      memState.push(new DfaInstanceofValue(runner.getFactory(), psiOperand, Objects.requireNonNull(instruction.getCastType()), relation, false));
+      DfaCondition relation = operand.cond(RelationType.IS, type);
+      memState.push(new DfaInstanceofValue(runner.getFactory(), psiOperand, Objects.requireNonNull(instruction.getCastType()), relation));
       return new DfaInstructionState[]{new DfaInstructionState(runner.getInstruction(instruction.getIndex() + 1), memState)};
     }
 

@@ -7,19 +7,17 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.*;
-import com.intellij.psi.search.LocalSearchScope;
-import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.InlineUtil;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.Query;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.HighlightUtils;
+import com.siyeh.ig.psiutils.VariableAccessUtils;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.Contract;
@@ -208,8 +206,7 @@ public class ReturnSeparatedFromComputationInspection extends AbstractBaseJavaLo
       return;
     }
 
-    Query<PsiReference> query = ReferencesSearch.search(context.returnedVariable, new LocalSearchScope(context.variableScope));
-    Collection<PsiReference> usages = query.findAll();
+    List<PsiReferenceExpression> usages = VariableAccessUtils.getVariableReferences(context.returnedVariable, context.variableScope);
     for (PsiReference usage : usages) {
       PsiElement parent = PsiTreeUtil.skipParentsOfType(usage.getElement(),
                                                         PsiParenthesizedExpression.class, PsiTypeCastExpression.class);
@@ -344,14 +341,8 @@ public class ReturnSeparatedFromComputationInspection extends AbstractBaseJavaLo
       if (targetStatement instanceof PsiIfStatement) {
         return moveToIf((PsiIfStatement)targetStatement);
       }
-      if (targetStatement instanceof PsiForStatement) {
-        return moveToFor((PsiForStatement)targetStatement);
-      }
-      if (targetStatement instanceof PsiWhileStatement) {
-        return moveToWhile((PsiWhileStatement)targetStatement);
-      }
-      if (targetStatement instanceof PsiDoWhileStatement) {
-        return moveToDoWhile((PsiDoWhileStatement)targetStatement);
+      if (targetStatement instanceof PsiConditionalLoopStatement) {
+        return moveToConditionalLoop((PsiConditionalLoopStatement)targetStatement);
       }
       if (targetStatement instanceof PsiForeachStatement) {
         return moveToForeach((PsiForeachStatement)targetStatement);
@@ -408,19 +399,9 @@ public class ReturnSeparatedFromComputationInspection extends AbstractBaseJavaLo
       return thenPart && elsePart;
     }
 
-    private boolean moveToFor(@NotNull PsiForStatement targetStatement) {
-      moveToBreaks(targetStatement, false);
-      return isAlwaysTrue(targetStatement.getCondition(), true);
-    }
-
-    private boolean moveToDoWhile(@NotNull PsiDoWhileStatement targetStatement) {
-      moveToBreaks(targetStatement, false);
-      return isAlwaysTrue(targetStatement.getCondition(), false);
-    }
-
-    private boolean moveToWhile(@NotNull PsiWhileStatement targetStatement) {
-      moveToBreaks(targetStatement, false);
-      return isAlwaysTrue(targetStatement.getCondition(), false);
+    private boolean moveToConditionalLoop(@NotNull PsiConditionalLoopStatement loop) {
+      moveToBreaks(loop, false);
+      return isAlwaysTrue(loop.getCondition(), loop instanceof PsiForStatement);
     }
 
     private boolean moveToForeach(@NotNull PsiForeachStatement targetStatement) {

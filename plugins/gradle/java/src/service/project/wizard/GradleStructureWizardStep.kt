@@ -9,11 +9,12 @@ import com.intellij.openapi.externalSystem.service.project.wizard.MavenizedStruc
 import com.intellij.openapi.externalSystem.util.ui.DataView
 import com.intellij.openapi.ui.ValidationInfo
 import icons.GradleIcons
+import org.jetbrains.plugins.gradle.util.GradleBundle
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import javax.swing.Icon
 
 class GradleStructureWizardStep(
-  private val builder: GradleModuleBuilder,
+  private val builder: AbstractGradleModuleBuilder,
   context: WizardContext
 ) : MavenizedStructureWizardStep<ProjectData>(context) {
 
@@ -33,6 +34,20 @@ class GradleStructureWizardStep(
 
   override fun validateVersion(): ValidationInfo? = null
 
+  override fun validateName(): ValidationInfo? {
+    return validateNameAndArtifactId() ?: super.validateName()
+  }
+
+  override fun validateArtifactId(): ValidationInfo? {
+    return validateNameAndArtifactId() ?: super.validateArtifactId()
+  }
+
+  private fun validateNameAndArtifactId(): ValidationInfo? {
+    if (artifactId == entityName) return null
+    val presentationName = context.presentationName.capitalize()
+    return ValidationInfo(GradleBundle.message("gradle.structure.wizard.name.and.artifact.id.is.different.error", presentationName))
+  }
+
   override fun updateProjectData() {
     context.projectBuilder = builder
     builder.setParentProject(parentData)
@@ -40,6 +55,7 @@ class GradleStructureWizardStep(
     builder.isInheritGroupId = parentData?.group == groupId
     builder.isInheritVersion = parentData?.version == version
     builder.name = entityName
+    builder.contentEntryPath = location
   }
 
   override fun _init() {

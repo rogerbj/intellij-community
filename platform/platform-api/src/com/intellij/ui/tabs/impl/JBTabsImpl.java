@@ -54,11 +54,12 @@ public class JBTabsImpl extends JComponent
   implements JBTabsEx, PropertyChangeListener, TimerListener, DataProvider, PopupMenuListener, Disposable, JBTabsPresentation, Queryable,
              UISettingsListener, QuickActionProvider, Accessible {
 
-  @NonNls public static final Key<Integer> SIDE_TABS_SIZE_LIMIT_KEY = Key.create("SIDE_TABS_SIZE_LIMIT_KEY");
+  public static final Key<Integer> SIDE_TABS_SIZE_LIMIT_KEY = Key.create("SIDE_TABS_SIZE_LIMIT_KEY");
   static final int MIN_TAB_WIDTH = JBUIScale.scale(75);
   static final int DEFAULT_MAX_TAB_WIDTH = JBUIScale.scale(300);
 
   private static final Comparator<TabInfo> ABC_COMPARATOR = (o1, o2) -> StringUtil.naturalCompare(o1.getText(), o2.getText());
+  private static final Logger LOG = Logger.getInstance(JBTabsImpl.class);
 
   @NotNull final ActionManager myActionManager;
   private final List<TabInfo> myVisibleInfos = new ArrayList<>();
@@ -425,7 +426,7 @@ public class JBTabsImpl extends JComponent
     return false;
   }
 
-  boolean supportsCompression() {
+  public boolean supportsCompression() {
     return mySupportsCompression;
   }
 
@@ -533,7 +534,7 @@ public class JBTabsImpl extends JComponent
   @Override
   public void remove(int index) {
     if (myRemoveNotifyInProgress) {
-      Logger.getInstance(JBTabsImpl.class).warn(new IllegalStateException("removeNotify in progress"));
+      LOG.warn(new IllegalStateException("removeNotify in progress"));
     }
     super.remove(index);
   }
@@ -541,7 +542,7 @@ public class JBTabsImpl extends JComponent
   @Override
   public void removeAll() {
     if (myRemoveNotifyInProgress) {
-      Logger.getInstance(JBTabsImpl.class).warn(new IllegalStateException("removeNotify in progress"));
+      LOG.warn(new IllegalStateException("removeNotify in progress"));
     }
     super.removeAll();
   }
@@ -996,8 +997,13 @@ public class JBTabsImpl extends JComponent
     }
 
     fireBeforeSelectionChanged(oldInfo, newInfo);
+    boolean oldValue = myMouseInsideTabsArea;
+    try {
+      updateContainer(false, true);
+    } finally {
+      myMouseInsideTabsArea = oldValue;
+    }
 
-    updateContainer(false, true);
 
     fireSelectionChanged(oldInfo, newInfo);
 
@@ -1473,6 +1479,7 @@ public class JBTabsImpl extends JComponent
           add(side, BorderLayout.CENTER);
         }
       }
+      UIUtil.uiTraverser(this).forEach(c -> c.setFocusable(false));
     }
 
     public boolean isEmpty() {
@@ -1852,7 +1859,7 @@ public class JBTabsImpl extends JComponent
   @NotNull
   private ActionCallback removeTab(TabInfo info, @Nullable TabInfo forcedSelectionTransfer, boolean transferFocus, boolean isDropTarget) {
     if (myRemoveNotifyInProgress) {
-      Logger.getInstance(JBTabsImpl.class).warn(new IllegalStateException("removeNotify in progress"));
+      LOG.warn(new IllegalStateException("removeNotify in progress"));
     }
     if (myPopupInfo == info) myPopupInfo = null;
 
@@ -1987,7 +1994,7 @@ public class JBTabsImpl extends JComponent
   }
 
   private void updateContainer(boolean forced, final boolean layoutNow) {
-    if (myProject != null && !myProject.isOpen()) return;
+    if (myProject != null && !myProject.isOpen() && !myProject.isDefault()) return;
     for (TabInfo each : new ArrayList<>(myVisibleInfos)) {
       final JComponent eachComponent = each.getComponent();
       if (getSelectedInfo() == each && getSelectedInfo() != null) {
@@ -2628,7 +2635,7 @@ public class JBTabsImpl extends JComponent
     OnePixelDivider divider = mySplitter.getDivider();
     if (position.isSide() && divider.getParent() == null) {
       add(divider);
-    } else if (divider.getParent() == this){
+    } else if (divider.getParent() == this && !position.isSide()){
       remove(divider);
     }
     relayout(true, false);
@@ -2640,7 +2647,7 @@ public class JBTabsImpl extends JComponent
     return myPosition;
   }
 
-  TimedDeadzone.Length getTabActionsMouseDeadzone() {
+  public TimedDeadzone.Length getTabActionsMouseDeadzone() {
     return myTabActionsMouseDeadzone;
   }
 
@@ -2663,7 +2670,7 @@ public class JBTabsImpl extends JComponent
     return this;
   }
 
-  boolean isTabDraggingEnabled() {
+  public boolean isTabDraggingEnabled() {
     return myTabDraggingEnabled && !mySplitter.isDragging();
   }
 

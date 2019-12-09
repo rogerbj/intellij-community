@@ -25,13 +25,15 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.KeyWithDefaultValue;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.task.*;
+import com.intellij.task.ProjectTaskManager;
+import com.intellij.task.ProjectTaskRunner;
 import com.intellij.testFramework.ExtensionTestUtil;
 import com.intellij.testFramework.HeavyPlatformTestCase;
-import com.intellij.util.concurrency.Semaphore;
+import com.intellij.testFramework.PlatformTestUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
 
 import java.util.Collections;
 import java.util.List;
@@ -42,7 +44,6 @@ import static com.intellij.openapi.externalSystem.util.ExternalSystemConstants.U
 import static java.util.Collections.emptyList;
 
 public class ExternalSystemTaskActivatorTest extends HeavyPlatformTestCase {
-
   private static final Key<StringBuilder> TASKS_TRACE = KeyWithDefaultValue.create("tasks trace", StringBuilder::new);
   private static final String TEST_MODULE_NAME = "MyModule";
 
@@ -100,26 +101,14 @@ public class ExternalSystemTaskActivatorTest extends HeavyPlatformTestCase {
     taskActivator.addTask(new ExternalSystemTaskActivator.TaskActivationEntry(TEST_EXTERNAL_SYSTEM_ID, phase, projectPath, taskName));
   }
 
-  private static void build(@NotNull Module module) {
-    Semaphore semaphore = new Semaphore(1);
-    ProjectTaskManager.getInstance(module.getProject()).build(new Module[]{module}, new ProjectTaskNotification() {
-      @Override
-      public void finished(@NotNull ProjectTaskContext context, @NotNull ProjectTaskResult executionResult) {
-        semaphore.up();
-      }
-    });
-    semaphore.waitFor();
+  private void build(@NotNull Module module) {
+    Promise<ProjectTaskManager.Result> promise = ProjectTaskManager.getInstance(module.getProject()).build(module);
+    edt(() -> PlatformTestUtil.waitForPromise(promise));
   }
 
-  private static void rebuild(@NotNull Module module) {
-    Semaphore semaphore = new Semaphore(1);
-    ProjectTaskManager.getInstance(module.getProject()).rebuild(new Module[]{module}, new ProjectTaskNotification() {
-      @Override
-      public void finished(@NotNull ProjectTaskContext context, @NotNull ProjectTaskResult executionResult) {
-        semaphore.up();
-      }
-    });
-    semaphore.waitFor();
+  private void rebuild(@NotNull Module module) {
+    Promise<ProjectTaskManager.Result> promise = ProjectTaskManager.getInstance(module.getProject()).rebuild(module);
+    edt(() -> PlatformTestUtil.waitForPromise(promise));
   }
 
   private static class TestTaskConfigurationType extends AbstractExternalSystemTaskConfigurationType {

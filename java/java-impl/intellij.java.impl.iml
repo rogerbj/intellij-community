@@ -49,15 +49,6 @@
     <orderEntry type="module" module-name="intellij.java.uast" />
     <orderEntry type="library" name="gson" level="project" />
     <orderEntry type="module" module-name="intellij.java.compiler" />
-    <orderEntry type="module-library">
-      <library name="wadl-core">
-        <CLASSES>
-          <root url="jar://$MODULE_DIR$/../../lib/wadl-core.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
     <orderEntry type="library" name="jaxb-api" level="project" />
     <orderEntry type="library" name="javax.activation" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="jaxb-runtime" level="project" />
@@ -66,13 +57,13 @@
     <orderEntry type="module" module-name="intellij.platform.diff.impl" />
     <orderEntry type="module-library">
       <library name="completion-ranking-java" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.intellij.deps.completion:completion-ranking-java:0.0.7" />
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.intellij.deps.completion:completion-ranking-java:0.0.10" />
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/completion/completion-ranking-java/0.0.7/completion-ranking-java-0.0.7.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/completion/completion-ranking-java/0.0.10/completion-ranking-java-0.0.10.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/completion/completion-ranking-java/0.0.7/completion-ranking-java-0.0.7-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/completion/completion-ranking-java/0.0.10/completion-ranking-java-0.0.10-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>

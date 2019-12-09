@@ -284,11 +284,6 @@ public class SvnCommittedChangesProvider implements CachingCommittedChangesProvi
   }
 
   @Override
-  public boolean supportsIncomingChanges() {
-    return true;
-  }
-
-  @Override
   public int getFormatVersion() {
     return VERSION_WITH_REPLACED_PATHS;
   }
@@ -304,11 +299,6 @@ public class SvnCommittedChangesProvider implements CachingCommittedChangesProvi
     int version = getFormatVersion();
     return new SvnChangeList(myVcs, (SvnRepositoryLocation)location, stream, VERSION_WITH_COPY_PATHS_ADDED <= version,
                              VERSION_WITH_REPLACED_PATHS <= version);
-  }
-
-  @Override
-  public boolean isMaxCountSupported() {
-    return true;
   }
 
   @Override
@@ -355,21 +345,8 @@ public class SvnCommittedChangesProvider implements CachingCommittedChangesProvi
   }
 
   @Override
-  public boolean refreshCacheByNumber() {
-    return true;
-  }
-
-  @Override
   public String getChangelistTitle() {
     return message("changes.browser.revision.term");
-  }
-
-  @Override
-  public boolean isChangeLocallyAvailable(FilePath filePath,
-                                          @Nullable VcsRevisionNumber localRevision,
-                                          VcsRevisionNumber changeRevision,
-                                          SvnChangeList changeList) {
-    return localRevision != null && localRevision.compareTo(changeRevision) >= 0;
   }
 
   @Override

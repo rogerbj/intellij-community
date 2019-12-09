@@ -18,10 +18,7 @@ import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.Trinity;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentListener;
@@ -218,7 +215,6 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
     return container;
   }
 
-
   @Override
   public void loadState(@NotNull Element state) {
     myPendingState.set(readExternal(state));
@@ -227,13 +223,18 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
       ApplicationManager.getApplication().invokeLater(() -> {
         List<Bookmark> newList = myPendingState.getAndSet(null);
         if (newList != null) {
-          applyNewState(newList);
+          applyNewState(newList, true);
         }
-      }, myProject.getDisposedOrDisposeInProgress());
+      }, myProject.getDisposed());
     });
   }
 
-  private void applyNewState(@NotNull List<Bookmark> newList) {
+  @TestOnly
+  public void applyNewStateInTestMode(@NotNull List<Bookmark> newList) {
+    applyNewState(newList, false);
+  }
+
+  private void applyNewState(@NotNull List<Bookmark> newList, boolean fireEvents) {
     if (!myBookmarks.isEmpty()) {
       Bookmark[] bookmarks = myBookmarks.values().toArray(new Bookmark[0]);
       for (Bookmark bookmark : bookmarks) {
@@ -255,8 +256,6 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
       }
 
       bookmark.index = bookmarkIndex--;
-      myBookmarks.putValue(target.getFile(), bookmark);
-      addedBookmarks.add(bookmark);
 
       char mnemonic = bookmark.getMnemonic();
       if (mnemonic != Character.MIN_VALUE ) {
@@ -265,10 +264,15 @@ public final class BookmarkManager implements PersistentStateComponent<Element> 
           removeBookmark(old);
         }
       }
+
+      myBookmarks.putValue(target.getFile(), bookmark);
+      addedBookmarks.add(bookmark);
     }
 
-    for (Bookmark bookmark : addedBookmarks) {
-      getPublisher().bookmarkAdded(bookmark);
+    if (fireEvents) {
+      for (Bookmark bookmark : addedBookmarks) {
+        getPublisher().bookmarkAdded(bookmark);
+      }
     }
   }
 

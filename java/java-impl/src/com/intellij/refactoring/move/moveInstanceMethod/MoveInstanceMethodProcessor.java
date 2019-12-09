@@ -51,7 +51,7 @@ import java.util.*;
  * @author ven
  */
 public class MoveInstanceMethodProcessor extends BaseRefactoringProcessor{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.move.moveInstanceMethod.MoveInstanceMethodProcessor");
+  private static final Logger LOG = Logger.getInstance(MoveInstanceMethodProcessor.class);
 
   public PsiMethod getMethod() {
     return myMethod;
@@ -496,7 +496,6 @@ public class MoveInstanceMethodProcessor extends BaseRefactoringProcessor{
               if (ExpressionUtils.isReferenceTo(qualifier, myTargetVariable)) {
                 if (resolved instanceof PsiField) {
                   String fieldName = ((PsiField)resolved).getName();
-                  LOG.assertTrue(fieldName != null);
                   for (PsiParameter parameter : myMethod.getParameterList().getParameters()) {
                     if (Comparing.strEqual(parameter.getName(), fieldName) ||
                         facade.getResolveHelper().resolveReferencedVariable(fieldName, expression) != null) {

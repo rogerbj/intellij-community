@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Set;
 
 public class AnnotationDocGenerator {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.javadoc.AnnotationGenerator");
+  private static final Logger LOG = Logger.getInstance(AnnotationDocGenerator.class);
   @NotNull private final PsiAnnotation myAnnotation;
   @NotNull private final PsiJavaCodeReferenceElement myNameReference;
   @NotNull private final PsiModifierListOwner myOwner;
@@ -55,6 +55,10 @@ public class AnnotationDocGenerator {
 
   boolean isExternal() {
     return AnnotationUtil.isExternalAnnotation(myAnnotation);
+  }
+
+  public String getAnnotationQualifiedName() {
+    return myAnnotation.getQualifiedName();
   }
 
   public boolean isInferred() {

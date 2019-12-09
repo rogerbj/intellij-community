@@ -1,80 +1,90 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 import * as am4charts from "@amcharts/amcharts4/charts"
 import * as am4core from "@amcharts/amcharts4/core"
-import {LineChartDataManager, MetricDescriptor} from "@/aggregatedStats/LineChartDataManager"
 import {ChartSettings} from "@/aggregatedStats/ChartSettings"
-import {addExportMenu} from "@/charts/ChartManager"
-import HumanizeDuration from "humanize-duration"
+import {addExportMenu, StatChartManager} from "@/charts/ChartManager"
+import {MetricDescriptor, Metrics} from "@/aggregatedStats/model"
+import {ChartConfigurator} from "@/aggregatedStats/ChartConfigurator"
+import * as am4plugins_annotation from "@amcharts/amcharts4/plugins/annotation"
 
-interface ChartConfigurator {
-  configureXAxis(chart: am4charts.XYChart): void
-
-  configureSeries(series: am4charts.LineSeries): void
-}
-
-class SortedByCategory implements ChartConfigurator {
-  configureXAxis(chart: am4charts.XYChart): void {
-    const axis = new am4charts.CategoryAxis()
-    axis.dataFields.category = "build"
-
-    chart.xAxes.push(axis)
-
-    // https://www.amcharts.com/docs/v4/tutorials/handling-repeating-categories-on-category-axis/
-    axis.renderer.labels.template.adapter.add("textOutput", (text) => {
-      if (text == null) {
-        return text
-      }
-
-      const suffixIndex = text.indexOf(" (")
-      return suffixIndex === -1 ? text : text.substring(0, suffixIndex)
-    })
-  }
-
-  configureSeries(series: am4charts.LineSeries) {
-    series.dataFields.categoryX = "build"
-  }
-}
-
-export class LineChartManager {
+export class LineChartManager implements StatChartManager {
   private readonly chart: am4charts.XYChart
 
-  constructor(container: HTMLElement, private readonly chartSettings: ChartSettings, private readonly isInstantEvents: boolean, private readonly configurator: ChartConfigurator = new SortedByCategory()) {
+  constructor(container: HTMLElement,
+              private chartSettings: ChartSettings,
+              private readonly isInstantEvents: boolean,
+              private readonly metricDescriptors: Array<MetricDescriptor>,
+              private readonly configurator: ChartConfigurator) {
     this.chart = am4core.create(container, am4charts.XYChart)
 
     const chart = this.chart
+
     chart.legend = new am4charts.Legend()
+    chart.legend.itemContainers.template.events.on("over", event => {
+      const dataItem = event.target.dataItem
+      if (dataItem == null) {
+        return
+      }
+
+      for (const series of this.chart.series) {
+        if (dataItem.dataContext === series) {
+          continue
+        }
+
+        for (const segment of (series as am4charts.LineSeries).segments) {
+          segment.setState("inactive")
+        }
+      }
+    })
+    chart.legend.itemContainers.template.events.on("out", event => {
+      const dataItem: any = event.target.dataItem
+      if (dataItem == null) {
+        return
+      }
+
+      for (const series of this.chart.series) {
+        if (dataItem.dataContext === series) {
+          continue
+        }
+
+        for (const segment of (series as am4charts.LineSeries).segments) {
+          segment.setState("default")
+        }
+      }
+    })
+
+    chart.colors.step = 4
     addExportMenu(chart)
 
+    const cursor = new am4charts.XYCursor()
+    cursor.behavior = "zoomX"
+    chart.cursor = cursor
+
     // const dateAxis = chart.xAxes.push(new am4charts.DateAxis())
-    configurator.configureXAxis(chart)
     // @ts-ignore
+    const xAxis = configurator.configureXAxis(chart)
+    // xAxis.groupData = true
     // DurationAxis doesn't work due to some unclear bug
     const valueAxis = chart.yAxes.push(new am4charts.ValueAxis())
     // const durationAxis = chart.yAxes.push(new am4charts.DurationAxis())
-    valueAxis.logarithmic = true
-    //
-    // valueAxis.baseUnit = "millisecond"
+
+    // do not use logarithmic scale for line chart of duration events - better looking and more clear charts, if height will be a problem, then chart height can be increased
+    valueAxis.logarithmic = this.isInstantEvents
     valueAxis.durationFormatter.baseUnit = "millisecond"
     valueAxis.durationFormatter.durationFormat = "S"
 
-    const cursor = new am4charts.XYCursor()
-    cursor.behavior = "zoomXY"
-    // cursor.xAxis = dateAxis
-    // cursor.snapToSeries = series
-    chart.cursor = cursor
-
-    // create vertical scrollbar and place it before the value axis
-    chart.scrollbarY = new am4core.Scrollbar()
-    chart.scrollbarY.parent = chart.leftAxesContainer
-    chart.scrollbarY.toBack()
-
-    // create a horizontal scrollbar with preview and place it underneath the date axis
     if (this.chartSettings.showScrollbarXPreview) {
       this.configureScrollbarXWithPreview()
     }
-    else {
-      chart.scrollbarX = new am4core.Scrollbar()
-    }
+
+    chart.plugins.push(new am4plugins_annotation.Annotation())
+
+    // prevent Vue reactivity
+    Object.seal(this)
+  }
+
+  get dateFormatter(): am4core.DateFormatter {
+    return this.chart.dateFormatter
   }
 
   private configureScrollbarXWithPreview(): am4charts.XYChartScrollbar {
@@ -85,83 +95,63 @@ export class LineChartManager {
     return scrollbarX
   }
 
-  scrollbarXPreviewOptionChanged() {
+  scrollbarXPreviewOptionChanged(chartSettings: ChartSettings) {
+    this.chartSettings = chartSettings
+
     // no need to dispose old scrollbar explicit - will be disposed automatically on set
     const chart = this.chart
-    if (this.chartSettings.showScrollbarXPreview) {
+    if ((chart.scrollbarX != null) === chartSettings.showScrollbarXPreview) {
+      return
+    }
+
+    if (chartSettings.showScrollbarXPreview) {
       const scrollbarX = this.configureScrollbarXWithPreview()
       chart.series.each(it => {
         scrollbarX.series.push(it)
       })
     }
     else {
-      chart.scrollbarX = new am4core.Scrollbar()
+      chart.scrollbarX = null as any
     }
   }
 
-  render(dataManager: LineChartDataManager): void {
+  render(data: Array<Metrics>): void {
     const chart = this.chart
 
-    const scrollbarX = chart.scrollbarX as am4charts.XYChartScrollbar
-    const oldSeries = new Map<string, am4charts.LineSeries>()
-
-    for (const series of chart.series) {
-      oldSeries.set(series.name, series as am4charts.LineSeries)
-    }
-
-    for (const metric of (this.isInstantEvents ? dataManager.instantMetricDescriptors : dataManager.durationMetricDescriptors)) {
-      let series = oldSeries.get(metric.key)
-      if (series == null) {
-        series = new am4charts.LineSeries()
+    if (chart.series.length === 0) {
+      const scrollbarX = chart.scrollbarX as am4charts.XYChartScrollbar
+      for (const metric of this.metricDescriptors) {
+        const series = new am4charts.LineSeries()
         this.configureLineSeries(metric, series)
         chart.series.push(series)
+        if (this.chartSettings.showScrollbarXPreview) {
+          scrollbarX.series.push(series)
+        }
       }
-      else {
-        oldSeries.delete(metric.key)
-      }
-
-      if (this.chartSettings.showScrollbarXPreview) {
-        scrollbarX.series.push(series)
+    }
+    else {
+      // https://github.com/amcharts/amcharts4/issues/1908
+      for (const series of chart.series) {
+        series.bulletsContainer.disposeChildren()
       }
     }
 
-    oldSeries.forEach(value => {
-      chart.series.removeIndex(chart.series.indexOf(value))
-      if (this.chartSettings.showScrollbarXPreview) {
-        scrollbarX.series.removeIndex(scrollbarX.series.indexOf(value))
-      }
-      value.dispose()
-    })
-
-    chart.data = dataManager.metrics
+    chart.data = data
   }
 
   private configureLineSeries(metric: MetricDescriptor, series: am4charts.LineSeries) {
     series.name = metric.name
-    // timestamp
-    // series.dataFields.dateX = "t"
     this.configurator.configureSeries(series)
     // duration
     series.dataFields.valueY = metric.key
 
-    // use adapter to use HumanizeDuration
-    series.adapter.add("tooltipText", (value, target) => {
-      const dataItem = target.tooltipDataItem
-      const dataContext: any = dataItem == null ? null : dataItem.dataContext
-      if (dataContext != null) {
-        const value = dataContext[(metric.key)]
-        if (value != null) {
-          // RFC1123
-          // noinspection SpellCheckingInspection
-          return `${metric.name}: ${HumanizeDuration(value)}\nreport time: ${series.dateFormatter.format(dataContext.t, "EEE, dd MMM yyyy HH:mm:ss zzz")}`
-        }
-      }
-      return value
-    })
-
     if (metric.hiddenByDefault) {
       series.hidden = true
     }
+
+    series.strokeWidth = 2
+    const segmentState = series.segments.template.states.create("inactive")
+    segmentState.properties.strokeOpacity = 0.4
   }
 
   dispose(): void {

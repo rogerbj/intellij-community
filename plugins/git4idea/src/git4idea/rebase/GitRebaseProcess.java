@@ -18,47 +18,32 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
-import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
-import com.intellij.openapi.vcs.changes.committed.CommittedChangesTreeBrowser;
-import com.intellij.openapi.vcs.changes.ui.ChangeListViewerDialog;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.ColoredListCellRenderer;
-import com.intellij.ui.JBColor;
-import com.intellij.ui.components.JBCheckBox;
-import com.intellij.ui.components.JBLabel;
-import com.intellij.ui.components.labels.LinkLabel;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.MultiMap;
-import com.intellij.util.ui.components.BorderLayoutPanel;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.TimedVcsCommit;
-import com.intellij.vcs.log.VcsCommitMetadata;
 import com.intellij.vcs.log.impl.HashImpl;
-import com.intellij.vcs.log.impl.VcsCommitMetadataImpl;
-import com.intellij.vcs.log.ui.details.MultipleCommitInfoDialog;
 import com.intellij.vcs.log.util.VcsLogUtil;
 import git4idea.DialogManager;
 import git4idea.GitProtectedBranchesKt;
 import git4idea.GitRevisionNumber;
 import git4idea.branch.GitRebaseParams;
-import git4idea.changes.GitChangeUtils;
-import git4idea.changes.GitCommittedChangeList;
 import git4idea.commands.*;
-import git4idea.history.GitCommitRequirements;
 import git4idea.history.GitHistoryUtils;
 import git4idea.merge.GitConflictResolver;
+import git4idea.merge.GitDefaultMergeDialogCustomizer;
 import git4idea.merge.GitDefaultMergeDialogCustomizerKt;
 import git4idea.merge.GitMergeProvider;
 import git4idea.rebase.GitSuccessfulRebase.SuccessType;
@@ -67,15 +52,13 @@ import git4idea.repo.GitRepositoryManager;
 import git4idea.stash.GitChangesSaver;
 import git4idea.util.GitFreezingProcess;
 import git4idea.util.GitUntrackedFilesHelper;
+import kotlin.Pair;
 import org.jetbrains.annotations.CalledInBackground;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
-import java.awt.*;
-import java.util.List;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -87,8 +70,8 @@ import static com.intellij.openapi.vcs.VcsNotifier.IMPORTANT_ERROR_NOTIFICATION;
 import static com.intellij.util.ObjectUtils.*;
 import static com.intellij.util.containers.ContainerUtil.*;
 import static git4idea.GitUtil.*;
-import static git4idea.history.GitLogUtil.readFullDetails;
-import static git4idea.history.GitLogUtil.readFullDetailsForHashes;
+import static git4idea.merge.GitDefaultMergeDialogCustomizerKt.getTitleWithCommitDetailsCustomizer;
+import static git4idea.merge.GitDefaultMergeDialogCustomizerKt.getTitleWithCommitsRangeDetailsCustomizer;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singleton;
 
@@ -96,21 +79,9 @@ public class GitRebaseProcess {
 
   private static final Logger LOG = Logger.getInstance(GitRebaseProcess.class);
 
-  private final NotificationAction ABORT_ACTION = NotificationAction.create("Abort", (event, notification) -> {
-    abort();
-    notification.expire();
-  });
-
-  private final NotificationAction CONTINUE_ACTION = NotificationAction.create("Continue", (event, notification) -> {
-    retry(GitRebaseUtils.CONTINUE_PROGRESS_TITLE);
-    notification.expire();
-  });
-
-  private final NotificationAction RETRY_ACTION = NotificationAction.create("Retry", (event, notification) -> {
-    retry("Retry Rebase Process...");
-    notification.expire();
-  });
-
+  private final NotificationAction ABORT_ACTION = NotificationAction.createSimpleExpiring("Abort", () -> abort());
+  private final NotificationAction CONTINUE_ACTION = NotificationAction.createSimpleExpiring("Continue", () -> retry(GitRebaseUtils.CONTINUE_PROGRESS_TITLE));
+  private final NotificationAction RETRY_ACTION = NotificationAction.createSimpleExpiring("Retry", () -> retry("Retry Rebase Process..."));
   private final NotificationAction VIEW_STASH_ACTION;
 
   @NotNull private final Project myProject;
@@ -174,7 +145,7 @@ public class GitRebaseProcess {
           customMode = myCustomMode == null ? GitRebaseResumeMode.CONTINUE : myCustomMode;
         }
 
-        Collection<Change> changes = collectFutureChanges(repository);
+        Hash startHash = getHead(repository);
 
         GitRebaseStatus rebaseStatus = rebaseSingleRoot(repository, customMode, getSuccessfulRepositories(statuses));
         repository.update(); // make the repo state info actual ASAP
@@ -185,7 +156,7 @@ public class GitRebaseProcess {
         latestRepository = repository;
         statuses.put(repository, rebaseStatus);
         if (shouldBeRefreshed(rebaseStatus)) {
-          refreshVfs(repository.getRoot(), changes);
+          refreshChangedVfs(repository, startHash);
         }
         if (rebaseStatus.getType() != GitRebaseStatus.Type.SUCCESS) {
           break;
@@ -210,28 +181,6 @@ public class GitRebaseProcess {
       myRepositoryManager.setOngoingRebaseSpec(null);
       ExceptionUtil.rethrowUnchecked(e);
     }
-  }
-
-  @Nullable
-  private Collection<Change> collectFutureChanges(@NotNull GitRepository repository) {
-    GitRebaseParams params = myRebaseSpec.getParams();
-    if (params == null) return null;
-
-    Collection<Change> changes = new ArrayList<>();
-    String branch = params.getBranch();
-    if (branch != null) {
-      Collection<Change> changesFromCheckout = GitChangeUtils.getDiff(repository, HEAD, branch, false);
-      if (changesFromCheckout == null) return null;
-      changes.addAll(changesFromCheckout);
-    }
-
-    String rev1 = coalesce(params.getNewBase(), branch, HEAD);
-    String rev2 = params.getUpstream();
-    Collection<Change> changesFromRebase = GitChangeUtils.getDiff(repository, rev1, rev2, false);
-    if (changesFromRebase == null) return null;
-
-    changes.addAll(changesFromRebase);
-    return changes;
   }
 
   private void saveUpdatedSpec(@NotNull Map<GitRepository, GitRebaseStatus> statuses) {
@@ -475,9 +424,7 @@ public class GitRebaseProcess {
       }
 
       if (upstream != null && branch != null) {
-        Hash head = resolveRef(repository, HEAD);
-        Hash rebaseHead = resolveRef(repository, "REBASE_HEAD");
-        Hash upstreamRef = resolveRef(repository, upstream);
+        Hash rebaseHead = resolveRef(repository, REBASE_HEAD);
         Hash mergeBase = null;
         try {
           GitRevisionNumber mergeBaseRev = GitHistoryUtils.getMergeBase(repository.getProject(), repository.getRoot(), upstream, branch);
@@ -486,10 +433,10 @@ public class GitRebaseProcess {
         catch (VcsException e) {
           LOG.warn(e);
         }
-        return new GitRebaseMergeDialogCustomizer(repository, upstream, branch, rebaseHead, head, mergeBase, upstreamRef);
+        return new GitRebaseMergeDialogCustomizer(repository, upstream, branch, rebaseHead, mergeBase);
       }
     }
-    return new MergeDialogCustomizer();
+    return new GitDefaultMergeDialogCustomizer(repository.getProject());
   }
 
   private static class GitRebaseMergeDialogCustomizer extends MergeDialogCustomizer {
@@ -499,23 +446,17 @@ public class GitRebaseProcess {
     @Nullable private final String myBaseBranch;
     @Nullable private final Hash myBaseHash;
     @Nullable private final Hash myIngoingCommit;
-    @Nullable private final Hash myHead;
     @Nullable private final Hash myMergeBase;
-    @Nullable private final String myUpstreamHash;
 
     private GitRebaseMergeDialogCustomizer(@NotNull GitRepository repository,
                                            @NotNull String upstream,
                                            @NotNull String branch,
                                            @Nullable Hash ingoingCommit,
-                                           @Nullable Hash head,
-                                           @Nullable Hash mergeBase,
-                                           @Nullable Hash upstreamRef) {
+                                           @Nullable Hash mergeBase) {
       myRepository = repository;
       myRebasingBranch = branch;
       myIngoingCommit = ingoingCommit;
-      myHead = head;
       myMergeBase = mergeBase;
-      myUpstreamHash = upstreamRef != null ? upstreamRef.asString() : null;
       if (upstream.matches("[a-fA-F0-9]{40}")) {
         myBasePresentable = VcsLogUtil.getShortHash(upstream);
         myBaseBranch = null;
@@ -555,171 +496,35 @@ public class GitRebaseProcess {
                     GitMergeProvider.calcColumnName(true, myBasePresentable));
     }
 
-    @Nullable
+    @NotNull
     @Override
+    public DiffEditorTitleCustomizerList getTitleCustomizerList(@NotNull FilePath file) {
+      return new DiffEditorTitleCustomizerList(
+        getLeftTitleCustomizer(file),
+        null,
+        getRightTitleCustomizer(file)
+      );
+    }
+
+    @Nullable
     public DiffEditorTitleCustomizer getLeftTitleCustomizer(@NotNull FilePath file) {
       if (myIngoingCommit == null) {
         return null;
       }
-      Project project = myRepository.getProject();
       String title = String.format("<html>Rebasing %s from <b>%s</b></html>",
                                    myIngoingCommit.toShortString(),
                                    myRebasingBranch);
-      return () -> createLabelWithShowLink(title, () -> {
-        ChangeListViewerDialog dlg = new ChangeListViewerDialog(project);
-        dlg.loadChangesInBackground(() -> {
-          GitCommittedChangeList changeList = GitChangeUtils.getRevisionChanges(project,
-                                                                                myRepository.getRoot(),
-                                                                                myIngoingCommit.asString(),
-                                                                                true,
-                                                                                false,
-                                                                                false);
-          return new ChangeListViewerDialog.ChangelistData(changeList, file);
-        });
-        dlg.setTitle("Rebasing " + myIngoingCommit.toShortString());
-        dlg.setModal(true);
-        dlg.show();
-      });
+      return getTitleWithCommitDetailsCustomizer(title, myRepository, file, myIngoingCommit.asString());
     }
 
     @Nullable
-    @Override
     public DiffEditorTitleCustomizer getRightTitleCustomizer(@NotNull FilePath file) {
-      if (myHead == null || myMergeBase == null || myUpstreamHash == null) {
+      if (myMergeBase == null) {
         return null;
       }
-      Project project = myRepository.getProject();
-      VirtualFile root = myRepository.getRoot();
-      String title = getRightTitle(true);
-      return () -> createLabelWithShowLink(title, () -> {
-        List<VcsCommitMetadata> details = new ArrayList<>();
-        Set<VcsCommitMetadata> filteredCommits = new HashSet<>();
-        ProgressManager.getInstance().runProcessWithProgressSynchronously(
-          () -> {
-            try {
-              readFullDetails(
-                project,
-                root,
-                (commit) -> {
-                  VcsCommitMetadata commitMetadata = new VcsCommitMetadataImpl(
-                    commit.getId(), commit.getParents(), commit.getCommitTime(), commit.getRoot(),
-                    commit.getSubject(), commit.getAuthor(), commit.getFullMessage(), commit.getCommitter(),
-                    commit.getAuthorTime());
-                  if (commit.getAffectedPaths().contains(file)) {
-                    filteredCommits.add(commitMetadata);
-                  }
-                  details.add(commitMetadata);
-                },
-                myMergeBase + ".." + myHead);
-            }
-            catch (VcsException e) {
-              LOG.warn(e);
-            }
-          },
-          "Collecting Commit Details...",
-          true,
-          project);
-        DialogWrapper dlg = new MyMultipleCommitInfoDialog(project, root, details, filteredCommits,
-                                                           find(details, (commit) -> commit.getId().asString().equals(myUpstreamHash)));
-        dlg.setTitle(getRightTitle(false));
-        dlg.show();
-      });
-    }
-
-    @NotNull
-    private String getRightTitle(boolean withBold) {
-      String branchPartPrefix = "and commits from";
-      String branchPartWithBold = myBaseBranch != null ? String.format("%s <b>%s</b>", branchPartPrefix, myBaseBranch) : "";
-      String branchPart = myBaseBranch != null ? String.format("%s %s", branchPartPrefix, myBaseBranch) : "";
-      return String.format("Already rebased commits %s", withBold ? branchPartWithBold : branchPart);
-    }
-
-    private static JPanel createLabelWithShowLink(@NotNull String text, @NotNull Runnable onClick) {
-      return new BorderLayoutPanel()
-        .addToCenter(new JBLabel(text).setCopyable(true))
-        .addToRight(LinkLabel.create("Show Details", onClick));
-    }
-
-    private static class MyMultipleCommitInfoDialog extends MultipleCommitInfoDialog {
-      @NotNull private final Project myProject;
-      @NotNull private final VirtualFile myRoot;
-      @NotNull private final Set<VcsCommitMetadata> myFilteredCommits;
-      @NotNull private final Set<VcsCommitMetadata> myHighlightedCommits;
-      @NotNull private static final JBColor UPSTREAM_COMMITS_BACKGROUND = new JBColor(new Color(228, 250, 255), new Color(63, 71, 73));
-
-      MyMultipleCommitInfoDialog(@NotNull Project project,
-                                 @NotNull VirtualFile root,
-                                 @NotNull List<VcsCommitMetadata> commits,
-                                 @NotNull Set<VcsCommitMetadata> filteredCommits,
-                                 @Nullable VcsCommitMetadata baseCommit) {
-        super(project, commits);
-        myProject = project;
-        myRoot = root;
-        myFilteredCommits = filteredCommits;
-
-        myHighlightedCommits = new HashSet<>();
-        boolean highlighting = false;
-        for (VcsCommitMetadata commit : commits) {
-          if (commit.equals(baseCommit)) {
-            highlighting = true;
-          }
-          if (highlighting) {
-            myHighlightedCommits.add(commit);
-          }
-        }
-        filterCommitsByConflictingFile();
-      }
-
-      @NotNull
-      @Override
-      public List<Change> loadChanges(@NotNull List<? extends VcsCommitMetadata> commits) throws VcsException {
-        List<Change> changes = new ArrayList<>();
-        readFullDetailsForHashes(myProject,
-                                 myRoot,
-                                 map(commits, commit -> commit.getId().asString()),
-                                 GitCommitRequirements.DEFAULT,
-                                 gitCommit -> changes.addAll(gitCommit.getChanges())
-        );
-        return CommittedChangesTreeBrowser.zipChanges(changes);
-      }
-
-      private void filterCommitsByConflictingFile() {
-        setFilter((commit) -> myFilteredCommits.contains(commit));
-      }
-
-      @Nullable
-      @Override
-      protected JPanel createSouthAdditionalPanel() {
-        JCheckBox checkbox = new JBCheckBox("Filter by conflicted file", true);
-        checkbox.addActionListener((e) -> {
-          if (checkbox.isSelected()) {
-            filterCommitsByConflictingFile();
-          }
-          else {
-            resetFilter();
-          }
-        });
-        return new BorderLayoutPanel().addToCenter(checkbox);
-      }
-
-
-      @Override
-      public void customizeListCellRenderer(@NotNull ColoredListCellRenderer<VcsCommitMetadata> renderer,
-                                            @NotNull JList<? extends VcsCommitMetadata> list,
-                                            @Nullable VcsCommitMetadata value,
-                                            int index,
-                                            boolean selected,
-                                            boolean hasFocus) {
-        super.customizeListCellRenderer(renderer, list, value, index, selected, hasFocus);
-        if (!selected) {
-          if (myHighlightedCommits.contains(value)) {
-            renderer.setBackground(UPSTREAM_COMMITS_BACKGROUND);
-          }
-          else {
-            renderer.setBackground(list.getBackground());
-          }
-        }
-      }
+      String branchPartWithBold = myBaseBranch != null ? String.format("and commits from <b>%s</b>", myBaseBranch) : "";
+      String title = String.format("Already rebased commits %s", branchPartWithBold);
+      return getTitleWithCommitsRangeDetailsCustomizer(title, myRepository, file, new Pair<>(myMergeBase.asString(), HEAD));
     }
   }
 

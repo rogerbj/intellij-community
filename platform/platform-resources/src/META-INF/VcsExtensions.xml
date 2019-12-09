@@ -8,7 +8,9 @@
     <applicationService serviceImplementation="com.intellij.openapi.vcs.actions.AnnotationsSettings"/>
     <applicationService serviceInterface="com.intellij.vfs.AsyncVfsEventsPostProcessor"
                         serviceImplementation="com.intellij.vfs.AsyncVfsEventsPostProcessorImpl"/>
-    <applicationService serviceImplementation="com.intellij.lifecycle.PeriodicalTasksCloser"/>
+
+    <projectService serviceInterface="com.intellij.openapi.vcs.changes.ChangeListManager"
+                    serviceImplementation="com.intellij.openapi.vcs.changes.ChangeListManagerImpl" preload="notHeadless"/>
 
     <projectService serviceInterface="com.intellij.openapi.vcs.AbstractVcsHelper"
                     serviceImplementation="com.intellij.openapi.vcs.impl.AbstractVcsHelperImpl"/>
@@ -180,6 +182,8 @@
     <listener class="com.intellij.openapi.vcs.changes.patch.PatchClipboardListener"
               topic="com.intellij.openapi.application.ApplicationActivationListener"/>
     <listener class="com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl$MyProjectManagerListener"
+              topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    <listener class="com.intellij.openapi.vcs.changes.ChangeListManagerImpl$MyAppLevelProjectManagerListener"
               topic="com.intellij.openapi.project.ProjectManagerListener"/>
   </applicationListeners>
 </idea-plugin>

@@ -75,7 +75,7 @@ public class IntroduceVariableTest extends LightJavaCodeInsightTestCase {
       @Override
       protected boolean reportConflicts(MultiMap<PsiElement, String> conflicts, final Project project, IntroduceVariableSettings dialog) {
         assertEquals(2, conflicts.size());
-        Collection<? extends String> conflictsMessages = conflicts.values();
+        Collection<String> conflictsMessages = conflicts.values();
         assertTrue(conflictsMessages.contains("Introducing variable may break code logic"));
         assertTrue(conflictsMessages.contains("Local variable <b><code>c</code></b> is modified in loop body"));
         return false;
@@ -210,6 +210,7 @@ public class IntroduceVariableTest extends LightJavaCodeInsightTestCase {
   public void testInvalidPostfixExpr() { doTest("a1", true, false, true, "int[]"); }
   public void testPolyadic() { doTest("b1", true, true, true, "boolean"); }
   public void testAssignmentToUnresolvedReference() { doTest("collection", true, true, true, "java.util.List<? extends java.util.Collection<?>>"); }
+  public void testSubstringInSwitch() { doTest("ba", false, false, false, CommonClassNames.JAVA_LANG_STRING);}
 
   public void testNameSuggestion() {
     String expectedTypeName = "Path";
@@ -329,6 +330,7 @@ public class IntroduceVariableTest extends LightJavaCodeInsightTestCase {
   public void testDenotableType3() { doTest("m", false, false, false, "java.util.function.IntFunction<java.lang.Class<?>[]>"); }
   public void testCapturedWildcardUpperBoundSuggestedAsType() { doTest("m", false, false, false, "I"); }
   public void testArrayOfCapturedWildcardUpperBoundSuggestedAsType() { doTest("m", false, false, false, "I[]"); }
+  public void testFieldFromLambda() { doTest("foo", false, false, true, "int"); }
 
   public void testReturnNonExportedArray() {
     doTest(new MockIntroduceVariableHandler("i", false, false, false, "java.io.File[]") {

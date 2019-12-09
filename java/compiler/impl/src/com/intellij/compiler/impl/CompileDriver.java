@@ -18,6 +18,7 @@ import com.intellij.openapi.module.EffectiveLanguageLevelUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.projectRoots.Sdk;
@@ -55,14 +56,16 @@ import org.jetbrains.jps.model.java.JavaSourceRootType;
 
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
+import java.awt.*;
 import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage.ParametersMessage.TargetTypeBuildScope;
 
-public class CompileDriver {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.compiler.impl.CompileDriver");
+public final class CompileDriver {
+  private static final Logger LOG = Logger.getInstance(CompileDriver.class);
 
   private static final Key<Boolean> COMPILATION_STARTED_AUTOMATICALLY = Key.create("compilation_started_automatically");
   private static final Key<ExitStatus> COMPILE_SERVER_BUILD_STATUS = Key.create("COMPILE_SERVER_BUILD_STATUS");
@@ -107,8 +110,8 @@ public class CompileDriver {
 
     final Ref<ExitStatus> result = new Ref<>();
 
-    task.start(() -> {
-      final ProgressIndicator indicator = compileContext.getProgressIndicator();
+    Runnable compileWork = () -> {
+      ProgressIndicator indicator = compileContext.getProgressIndicator();
       if (indicator.isCanceled() || myProject.isDisposed()) {
         return;
       }
@@ -131,7 +134,15 @@ public class CompileDriver {
           CompilerCacheManager.getInstance(myProject).flushCaches();
         }
       }
-    }, null);
+    };
+
+    ProgressIndicatorProvider indicatorProvider = ProgressIndicatorProvider.getInstance();
+    if (!EventQueue.isDispatchThread() && indicatorProvider.getProgressIndicator() != null) {
+      // if called from background process on pooled thread, run synchronously
+      task.run(compileWork, null, indicatorProvider.getProgressIndicator());
+    } else {
+      task.start(compileWork, null);
+    }
 
     if (LOG.isDebugEnabled()) {
       LOG.debug("isUpToDate operation finished");
@@ -176,8 +187,8 @@ public class CompileDriver {
     if (explicitScopes != null) {
       scopes.addAll(explicitScopes);
     }
-    else if (!compileContext.isRebuild() && !CompileScopeUtil.allProjectModulesAffected(compileContext)) {
-      CompileScopeUtil.addScopesForModules(Arrays.asList(scope.getAffectedModules()), scope.getAffectedUnloadedModules(), scopes, forceBuild);
+    else if (!compileContext.isRebuild() && (!paths.isEmpty() || !CompileScopeUtil.allProjectModulesAffected(compileContext))) {
+      CompileScopeUtil.addScopesForSourceSets(scope.getAffectedSourceSets(), scope.getAffectedUnloadedModules(), scopes, forceBuild);
     }
     else {
       scopes.addAll(CmdlineProtoUtil.createAllModulesScopes(forceBuild));
@@ -235,9 +246,9 @@ public class CompileDriver {
     buildManager.cancelAutoMakeTasks(myProject);
     return buildManager.scheduleBuild(myProject, compileContext.isRebuild(), compileContext.isMake(), onlyCheckUpToDate, scopes, paths, builderParams, new DefaultMessageHandler(myProject) {
       @Override
-      public void sessionTerminated(@NotNull final UUID sessionId) {
+      public void sessionTerminated(@NotNull UUID sessionId) {
         if (compileContext.shouldUpdateProblemsView()) {
-          final ProblemsView view = ProblemsView.SERVICE.getInstance(myProject);
+          ProblemsView view = ProblemsView.SERVICE.getInstance(myProject);
           view.clearProgress();
           view.clearOldMessages(compileContext.getCompileScope(), compileContext.getSessionId());
         }
@@ -586,6 +597,8 @@ public class CompileDriver {
             if (!task.execute(context)) {
               return false;
             }
+          } catch (ProcessCanceledException e){
+            throw e;
           }
           catch (Throwable t) {
             LOG.error("Error executing task", t);
@@ -600,9 +613,6 @@ public class CompileDriver {
       StatusBar statusBar = WindowManager.getInstance().getStatusBar(myProject);
       if (statusBar != null) {
         statusBar.setInfo("");
-      }
-      if (progressIndicator instanceof CompilerTask) {
-        ApplicationManager.getApplication().invokeLater(((CompilerTask)progressIndicator)::showCompilerContent);
       }
     }
     return true;

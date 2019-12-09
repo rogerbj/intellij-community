@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.commands;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -6,16 +6,14 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.FocusWatcher;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.WindowManager;
-import com.intellij.openapi.wm.impl.FloatingDecorator;
-import com.intellij.openapi.wm.impl.ToolWindowImpl;
-import com.intellij.openapi.wm.impl.WindowManagerImpl;
-import com.intellij.openapi.wm.impl.WindowWatcher;
+import com.intellij.openapi.wm.impl.*;
 import com.intellij.util.Alarm;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.function.BooleanSupplier;
 
 /**
  * Requests focus for the specified tool window.
@@ -23,27 +21,36 @@ import java.awt.*;
  * @author Vladimir Kondratyev
  */
 public final class RequestFocusInToolWindowCmd extends FinalizableCommand {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.wm.impl.commands.RequestFocusInToolWindowCmd");
+  private static final Logger LOG = Logger.getInstance(RequestFocusInToolWindowCmd.class);
   private final ToolWindowImpl myToolWindow;
   private final FocusWatcher myFocusWatcher;
 
   private final Project myProject;
 
-  public RequestFocusInToolWindowCmd(IdeFocusManager focusManager, final ToolWindowImpl toolWindow, final FocusWatcher focusWatcher, @NotNull Runnable finishCallBack, Project project) {
+  public RequestFocusInToolWindowCmd(@NotNull ToolWindowImpl toolWindow, FocusWatcher focusWatcher, @NotNull Runnable finishCallBack, @NotNull Project project) {
     super(finishCallBack);
+
     myToolWindow = toolWindow;
     myFocusWatcher = focusWatcher;
     myProject = project;
   }
 
   @Override
-  public final void run() {
+  public void run() {
     try {
-      requestFocus();
+      if (!myProject.isDisposed()) {
+        requestFocus();
+      }
     }
     finally {
       finish();
     }
+  }
+
+  @NotNull
+  @Override
+  public BooleanSupplier getExpireCondition() {
+    return () -> myProject.isDisposed();
   }
 
   private void bringOwnerToFront() {
@@ -96,30 +103,32 @@ public final class RequestFocusInToolWindowCmd extends FinalizableCommand {
   }
 
   private void requestFocus() {
-    final Alarm checkerAlarm = new Alarm();
-    Runnable checker = new Runnable() {
+    Alarm checkerAlarm = new Alarm(myProject);
+    checkerAlarm.addRequest(new Runnable() {
       final long startTime = System.currentTimeMillis();
+
       @Override
       public void run() {
         if (System.currentTimeMillis() - startTime > 10000) {
           LOG.debug(myToolWindow.getId(), " tool window - cannot wait for showing component");
           return;
         }
+
         Component c = getShowingComponentToRequestFocus();
-        if (c != null) {
-          final Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getPermanentFocusOwner();
-          if (owner != c) {
-            myManager.getFocusManager().requestFocusInProject(c, myProject);
-            bringOwnerToFront();
-          }
-          myManager.getFocusManager().doWhenFocusSettlesDown(() -> updateToolWindow(c));
-        }
-        else {
+        if (c == null) {
           checkerAlarm.addRequest(this, 100);
         }
+        else {
+          Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getPermanentFocusOwner();
+          ToolWindowManagerImpl manager = myToolWindow.getToolWindowManager();
+          if (owner != c) {
+            manager.getFocusManager().requestFocusInProject(c, myProject);
+            bringOwnerToFront();
+          }
+          manager.getFocusManager().doWhenFocusSettlesDown(() -> updateToolWindow(c));
+        }
       }
-    };
-    checkerAlarm.addRequest(checker, 0);
+    }, 0);
   }
 
   private void updateToolWindow(Component c) {

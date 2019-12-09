@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
+import com.intellij.ide.AppLifecycleListener;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.internal.DebugAttachDetector;
 import com.intellij.openapi.application.Application;
@@ -11,19 +12,19 @@ import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.lang.management.ThreadInfo;
 import java.util.*;
 import java.util.function.Function;
 
 final class IdeaFreezeReporter implements IdePerformanceListener {
-  private static final int FREEZE_THRESHOLD = ApplicationManager.getApplication().isInternal() ? 10 : 25; // seconds
+  private static final int FREEZE_THRESHOLD = ApplicationManager.getApplication().isInternal() ? 15 : 25; // seconds
   private static final String REPORT_PREFIX = "report";
   private static final String DUMP_PREFIX = "dump";
   public static final String MESSAGE_FILE_NAME = ".message";
@@ -35,54 +36,68 @@ final class IdeaFreezeReporter implements IdePerformanceListener {
   private SamplingTask myDumpTask;
   final List<ThreadDump> myCurrentDumps = new ArrayList<>();
   List<StackTraceElement> myStacktraceCommonPart = null;
+  private volatile boolean myAppClosing;
 
   IdeaFreezeReporter() {
     Application app = ApplicationManager.getApplication();
-    if (!DEBUG && (!app.isEAP() || PluginManagerCore.isRunningFromSources())) {
+    if (!DEBUG && PluginManagerCore.isRunningFromSources() || (!app.isEAP() && !app.isInternal())) {
       throw ExtensionNotApplicableException.INSTANCE;
     }
 
-    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+    app.getMessageBus().connect().subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener() {
+      @Override
+      public void appWillBeClosed(boolean isRestart) {
+        myAppClosing = true;
+      }
+    });
+
+    app.executeOnPooledThread(() -> {
       PerformanceWatcher.getInstance().processUnfinishedFreeze((dir, duration) -> {
         try {
           // report deadly freeze
           File[] files = dir.listFiles();
           if (files != null) {
-            List<Attachment> attachments = new ArrayList<>();
-            String message = null, throwable = null, appinfo = null;
-            List<String> dumps = new ArrayList<>();
-            for (File file : files) {
-              String text = FileUtil.loadFile(file);
-              String name = file.getName();
-              if (MESSAGE_FILE_NAME.equals(name)) {
-                message = text;
+            if (duration > FREEZE_THRESHOLD) {
+              List<Attachment> attachments = new ArrayList<>();
+              String message = null, appinfo = null;
+              Throwable throwable = null;
+              List<String> dumps = new ArrayList<>();
+              for (File file : files) {
+                String text = FileUtil.loadFile(file);
+                String name = file.getName();
+                if (MESSAGE_FILE_NAME.equals(name)) {
+                  message = text;
+                }
+                else if (THROWABLE_FILE_NAME.equals(name)) {
+                  try (FileInputStream fis = new FileInputStream(file); ObjectInputStream ois = new ObjectInputStream(fis)) {
+                    throwable = (Throwable)ois.readObject();
+                  }
+                  catch (Exception ignored) {
+                  }
+                }
+                else if (APPINFO_FILE_NAME.equals(name)) {
+                  appinfo = text;
+                }
+                else if (name.startsWith(REPORT_PREFIX)) {
+                  attachments.add(createReportAttachment(duration, text));
+                }
+                else if (name.startsWith(PerformanceWatcher.DUMP_PREFIX)) {
+                  dumps.add(text);
+                }
               }
-              else if (THROWABLE_FILE_NAME.equals(name)) {
-                throwable = text;
-              }
-              else if (APPINFO_FILE_NAME.equals(name)) {
-                appinfo = text;
-              }
-              else if (name.startsWith(REPORT_PREFIX)) {
-                attachments.add(createReportAttachment(duration, text));
-              }
-              else if (name.startsWith(PerformanceWatcher.DUMP_PREFIX)) {
-                dumps.add(text);
+
+              addDumpsAttachments(dumps, Function.identity(), attachments);
+
+              if (message != null && throwable != null && !attachments.isEmpty()) {
+                IdeaLoggingEvent event = LogMessage.createEvent(throwable, message, attachments.toArray(Attachment.EMPTY_ARRAY));
+                Object data = event.getData();
+                if (data instanceof AbstractMessage) {
+                  ((AbstractMessage)data).setAppInfo(appinfo);
+                }
+                report(event);
               }
             }
-
-            addDumpsAttachments(dumps, Function.identity(), attachments);
-
             cleanup(dir);
-
-            if (message != null && throwable != null && !attachments.isEmpty()) {
-              IdeaLoggingEvent event = LogMessage.createEvent(new Freeze(throwable), message, attachments.toArray(Attachment.EMPTY_ARRAY));
-              Object data = event.getData();
-              if (data instanceof AbstractMessage) {
-                ((AbstractMessage)data).setAppInfo(appinfo);
-              }
-              report(event);
-            }
           }
         }
         catch (IOException ignored) {
@@ -145,17 +160,15 @@ final class IdeaFreezeReporter implements IdePerformanceListener {
       if (event != null) {
         try {
           FileUtil.writeToFile(new File(dir, MESSAGE_FILE_NAME), event.getMessage());
-          FileUtil.writeToFile(new File(dir, THROWABLE_FILE_NAME), event.getThrowableText());
+          try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(new File(dir, THROWABLE_FILE_NAME)))) {
+            oos.writeObject(event.getThrowable());
+          }
           File appInfoFile = new File(dir, APPINFO_FILE_NAME);
           if (!appInfoFile.exists()) {
-            String appInfo = ITNProxy.getAppInfoString();
-            if (appInfo != null) {
-              FileUtil.writeToFile(appInfoFile, appInfo);
-            }
+            FileUtil.writeToFile(appInfoFile, ITNProxy.getAppInfoString());
           }
         }
-        catch (IOException ignored) {
-        }
+        catch (IOException ignored) { }
       }
     }
   }
@@ -290,7 +303,7 @@ final class IdeaFreezeReporter implements IdePerformanceListener {
     if (!ContainerUtil.isEmpty(commonStack)) {
       String edtNote = allInEdt ? "in EDT " : "";
       String message = "Freeze " + edtNote + "for " + lengthInSeconds + " seconds\n" +
-                       (finished ? "" : "IDE KILLED! ") +
+                       (finished ? "" : myAppClosing ? "IDE is closing. " : "IDE KILLED! ") +
                        "Sampled time: " + sampledTime + "ms, sampling rate: " + dumpInterval + "ms";
       long total = dumpTask.getTotalTime();
       long gcTime = dumpTask.getGcTime();
@@ -299,6 +312,10 @@ final class IdeaFreezeReporter implements IdePerformanceListener {
       }
       if (DebugAttachDetector.isDebugEnabled()) {
         message += ", debug agent: on";
+      }
+      double averageLoad = dumpTask.getOsAverageLoad();
+      if (averageLoad > 0) {
+        message += ", load average: " + String.format("%.2f", averageLoad);
       }
       if (nonEdtCause) {
         message += "\n\nThe stack is from the thread that was blocking EDT";
@@ -321,7 +338,7 @@ final class IdeaFreezeReporter implements IdePerformanceListener {
   private static final class CallTreeNode {
     private final StackTraceElement myStackTraceElement;
     private final CallTreeNode myParent;
-    private final List<CallTreeNode> myChildren = ContainerUtil.newSmartList();
+    private final List<CallTreeNode> myChildren = new SmartList<>();
     private final int myDepth;
     private long myTime;
     private final ThreadInfo myThreadInfo;

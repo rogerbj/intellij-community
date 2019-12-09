@@ -51,10 +51,10 @@ import java.util.function.Supplier;
 /**
  * @deprecated use {@link com.intellij.ui.tree.AsyncTreeModel} and {@link com.intellij.ui.tree.StructureTreeModel} instead.
  */
-@ApiStatus.ScheduledForRemoval
+@ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
 @Deprecated
 public class AbstractTreeUi {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.util.treeView.AbstractTreeBuilder");
+  private static final Logger LOG = Logger.getInstance(AbstractTreeBuilder.class);
   protected JTree myTree;// protected for TestNG
 
   private DefaultTreeModel myTreeModel;
@@ -1607,7 +1607,7 @@ public class AbstractTreeUi {
 
     final Object[] passTwo = getTreeStructure().getChildElements(element);
 
-    final HashSet<Object> two = new HashSet<>(Arrays.asList(passTwo));
+    Set<Object> two = ContainerUtil.set(passTwo);
 
     if (passOne.get().length != passTwo.length) {
       LOG.error(

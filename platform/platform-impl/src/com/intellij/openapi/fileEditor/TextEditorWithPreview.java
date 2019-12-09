@@ -8,6 +8,7 @@ import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.wm.IdeFocusManager;
@@ -21,6 +22,8 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.HashMap;
 import java.util.Map;
+
+import static com.intellij.openapi.actionSystem.ActionPlaces.TEXT_EDITOR_WITH_PREVIEW;
 
 /**
  * Two panel editor with three states: Editor, Preview and Editor with Preview.
@@ -38,6 +41,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
   private JComponent myComponent;
   private SplitEditorToolbar myToolbarWrapper;
   private final String myName;
+  public static final Key<Layout> DEFAULT_LAYOUT_FOR_FILE = Key.create("TextEditorWithPreview.DefaultLayout");
 
   public TextEditorWithPreview(TextEditor editor, @NotNull FileEditor preview, @NotNull String editorName, @NotNull Layout defaultLayout) {
     myEditor = editor;
@@ -101,7 +105,6 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
       splitter.setDividerWidth(3);
 
       myToolbarWrapper = createMarkdownToolbarWrapper(splitter);
-      Disposer.register(this, myToolbarWrapper);
 
       if (myLayout == null) {
         String lastUsed = PropertiesComponent.getInstance().getValue(getLayoutPropertyName());
@@ -320,7 +323,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
   protected ActionToolbar createToolbar() {
     ActionGroup actionGroup = createLeftToolbarActionGroup();
     if (actionGroup != null) {
-      return ActionManager.getInstance().createActionToolbar("TextEditorWithPreview", actionGroup, true);
+      return ActionManager.getInstance().createActionToolbar(TEXT_EDITOR_WITH_PREVIEW, actionGroup, true);
     }
     else {
       return null;
@@ -339,7 +342,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
     final ActionGroup rightToolbarActions = group == null
                                             ? viewActions
                                             : new DefaultActionGroup(group, Separator.create(), viewActions);
-    return ActionManager.getInstance().createActionToolbar("TextEditorWithPreview", rightToolbarActions, true);
+    return ActionManager.getInstance().createActionToolbar(TEXT_EDITOR_WITH_PREVIEW, rightToolbarActions, true);
   }
 
   @NotNull

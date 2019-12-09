@@ -4,7 +4,7 @@ package com.intellij.sh.completion;
 import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.testFramework.fixtures.BasePlatformTestCase;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -211,7 +211,7 @@ public class ShKeywordCompletionTest extends BasePlatformTestCase {
     final String completionRule = "number not equal";
     myFixture.configureByText("a.sh", "[ <caret> ]");
     completeByRule(completionRule);
-    myFixture.checkResult("[ $a -nq $b ]");
+    myFixture.checkResult("[ $a -ne $b ]");
   }
 
   public void testNumberLess() {
@@ -385,7 +385,7 @@ public class ShKeywordCompletionTest extends BasePlatformTestCase {
   }
 
   private void assertLookupNotContainsTemplateKeywords() {
-    List<String> templateKeywords = ContainerUtil.newSmartList("if", "select", "case", "for", "while", "until", "function", "elif");
+    List<String> templateKeywords = new SmartList<>("if", "select", "case", "for", "while", "until", "function", "elif");
     LookupImpl lookup = (LookupImpl) myFixture.getLookup();
     assertNotNull(lookup);
     assertTrue(lookup.getItems().stream().noneMatch(item -> templateKeywords.contains(item.getLookupString())));

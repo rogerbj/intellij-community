@@ -11,15 +11,12 @@ import com.intellij.codeInsight.highlighting.HighlightManager;
 import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.codeInspection.dataFlow.*;
-import com.intellij.codeInspection.dataFlow.instructions.BranchingInstruction;
-import com.intellij.codeInspection.dataFlow.instructions.Instruction;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.codeInspection.redundantCast.RemoveRedundantCastUtil;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.PsiClassListCellRenderer;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -30,7 +27,10 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.Pass;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.WindowManager;
@@ -69,7 +69,7 @@ import static com.intellij.codeInsight.AnnotationUtil.CHECK_TYPE;
 import static com.intellij.refactoring.util.duplicates.DuplicatesFinder.MatchType;
 
 public class ExtractMethodProcessor implements MatchProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.extractMethod.ExtractMethodProcessor");
+  private static final Logger LOG = Logger.getInstance(ExtractMethodProcessor.class);
   @TestOnly
   public static final Key<Boolean> SIGNATURE_CHANGE_ALLOWED = Key.create("SignatureChangeAllowed");
 
@@ -143,8 +143,13 @@ public class ExtractMethodProcessor implements MatchProvider {
     myProject = project;
     myEditor = editor;
     if (elements.length != 1 || !(elements[0] instanceof PsiBlockStatement)) {
-      myElements = elements.length == 1 && elements[0] instanceof PsiParenthesizedExpression
-                   ? new PsiElement[] {PsiUtil.skipParenthesizedExprDown((PsiExpression)elements[0])} : elements;
+      if (elements.length == 1 && elements[0] instanceof PsiParenthesizedExpression) {
+        PsiExpression expression = PsiUtil.skipParenthesizedExprDown((PsiExpression)elements[0]);
+        myElements = expression != null ? new PsiElement[]{expression} : elements;
+      }
+      else {
+        myElements = elements;
+      }
       myEnclosingBlockStatement = null;
     }
     else {
@@ -229,6 +234,9 @@ public class ExtractMethodProcessor implements MatchProvider {
       }
     }
 
+    if (PsiTreeUtil.getParentOfType(myElements[0], PsiAnnotation.class) != null) {
+      throw new PrepareFailedException("Unable to extract method from annotation value", myElements[0]);
+    }
     final PsiElement codeFragment = ControlFlowUtil.findCodeFragment(myElements[0]);
     myCodeFragmentMember = codeFragment.getUserData(ElementToWorkOn.PARENT);
     if (myCodeFragmentMember == null) {
@@ -435,7 +443,7 @@ public class ExtractMethodProcessor implements MatchProvider {
     }
     if (returnedExpressions.isEmpty()) return true;
 
-    final StandardDataFlowRunner dfaRunner = new StandardDataFlowRunner();
+    final DataFlowRunner dfaRunner = new DataFlowRunner();
     final StandardInstructionVisitor returnChecker = new StandardInstructionVisitor() {
       @Override
       protected void checkReturnValue(@NotNull DfaValue value,
@@ -463,24 +471,29 @@ public class ExtractMethodProcessor implements MatchProvider {
     for (PsiElement element : myElements) {
       block.add(element);
     }
-    final PsiIfStatement statementFromText = (PsiIfStatement)myElementFactory.createStatementFromText("if (" + exprText + " == null);", null);
-    block.add(statementFromText);
+    PsiReturnStatement statementFromText = (PsiReturnStatement)myElementFactory.createStatementFromText("return " + exprText + ";", null);
+    statementFromText = (PsiReturnStatement)block.add(statementFromText);
+    PsiExpression retValue = statementFromText.getReturnValue();
 
-    final StandardDataFlowRunner dfaRunner = new StandardDataFlowRunner();
-    final StandardInstructionVisitor visitor = new StandardInstructionVisitor();
-    final RunnerResult rc = dfaRunner.analyzeMethod(block, visitor);
-    if (rc == RunnerResult.OK) {
-      final Pair<Set<Instruction>, Set<Instruction>> expressions = dfaRunner.getConstConditionalExpressions();
-      final Set<Instruction> set = expressions.getSecond();
-      for (Instruction instruction : set) {
-        if (instruction instanceof BranchingInstruction) {
-          if (((BranchingInstruction)instruction).getPsiAnchor().getText().equals(statementFromText.getCondition().getText())) {
-            return true;
-          }
+    final DataFlowRunner dfaRunner = new DataFlowRunner();
+    
+    class Visitor extends StandardInstructionVisitor {
+      ThreeState neverNull = ThreeState.UNSURE; 
+      
+      @Override
+      protected void beforeExpressionPush(@NotNull DfaValue value,
+                                          @NotNull PsiExpression expression,
+                                          @Nullable TextRange range,
+                                          @NotNull DfaMemoryState state) {
+        if (expression == retValue && range == null) {
+          boolean stateNull = state.isNotNull(value);
+          neverNull = ThreeState.fromBoolean(stateNull && neverNull != ThreeState.NO);
         }
       }
     }
-    return false;
+    Visitor visitor = new Visitor();
+    final RunnerResult rc = dfaRunner.analyzeMethod(block, visitor);
+    return rc == RunnerResult.OK && visitor.neverNull == ThreeState.YES;
   }
 
   protected boolean checkOutputVariablesCount() {
@@ -584,21 +597,12 @@ public class ExtractMethodProcessor implements MatchProvider {
 
   public boolean showDialog(final boolean direct) {
     AbstractExtractDialog dialog = createExtractMethodDialog(direct);
-    Ref<Boolean> result = Ref.create(Boolean.FALSE);
-    Runnable showAndApply = () -> {
-      dialog.show();
-      if (dialog.isOK()) {
-        apply(dialog);
-        result.set(Boolean.TRUE);
-      }
-    };
-    if (dialog.showInTransaction()) {
-      TransactionGuard.getInstance().submitTransactionAndWait(showAndApply);
+    dialog.show();
+    if (dialog.isOK()) {
+      apply(dialog);
+      return true;
     }
-    else {
-      showAndApply.run();
-    }
-    return result.get();
+    return false;
   }
 
   protected void apply(final AbstractExtractDialog dialog) {
@@ -1864,7 +1868,10 @@ public class ExtractMethodProcessor implements MatchProvider {
                     ? ((PsiMember)myCodeFragmentMember).getContainingClass()
                     : PsiTreeUtil.getParentOfType(myCodeFragmentMember, PsiClass.class);
     if (myTargetClass == null) {
-      LOG.error(myElements[0].getContainingFile());
+      LOG.error("Unable to find target class. Parents are: "+
+                StreamEx.iterate(myCodeFragmentMember, PsiElement::getParent)
+                  .takeWhileInclusive(e -> e != null && !(e instanceof PsiFileSystemItem))
+                  .map(e -> e.getClass().getSimpleName()).joining(","));
     }
     if (!shouldAcceptCurrentTarget(extractPass, myTargetClass)) {
 
@@ -2033,8 +2040,7 @@ public class ExtractMethodProcessor implements MatchProvider {
     final Set<PsiField> fields = new LinkedHashSet<>();
     myCanBeStatic = canBeStatic(myTargetClass, myCodeFragmentMember, myElements, fields);
 
-    myInputVariables = new InputVariables(inputVariables, myProject, new LocalSearchScope(myElements), isFoldingApplicable());
-    myInputVariables.setUsedInstanceFields(fields);
+    myInputVariables = new InputVariables(inputVariables, myProject, new LocalSearchScope(myElements), isFoldingApplicable(), fields);
 
     if (!checkExitPoints()){
       return false;

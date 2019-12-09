@@ -21,13 +21,13 @@ internal fun disableInputMethodsIfPossible() {
 
   EventQueue.invokeLater {
     try {
-      for (frameHelper in WindowManagerEx.getInstanceEx().projectFrameHelpers) {
-        disableIMRecursively(SwingUtilities.getRoot(frameHelper.frame))
-      }
-
       val componentClass = ReflectionUtil.forName("java.awt.Component")
       val method = ReflectionUtil.getMethod(componentClass, "disableInputMethodSupport") ?: return@invokeLater
       method.invoke(componentClass)
+
+      for (frameHelper in WindowManagerEx.getInstanceEx().projectFrameHelpers) {
+        freeIMRecursively(SwingUtilities.getRoot(frameHelper.frame))
+      }
       Logger.getInstance(Main::class.java).info("InputMethods was disabled")
     }
     catch (e: Throwable) {
@@ -38,13 +38,16 @@ internal fun disableInputMethodsIfPossible() {
 
 private fun getLogger() = Logger.getInstance("#com.intellij.idea.ApplicationLoader")
 
-private fun disableIMRecursively(c: Component) {
-  c.enableInputMethods(false)
+private fun freeIMRecursively(c: Component) {
+  val ic = c.getInputContext()
+  if (ic != null)
+    ic.removeNotify(c);
+
   if (c !is Container) {
     return
   }
   for (k in c.components) {
-    disableIMRecursively(k)
+    freeIMRecursively(k)
   }
 }
 
@@ -77,8 +80,7 @@ private fun canDisableInputMethod(): Boolean {
     pr.waitFor()
 
     val buf = BufferedReader(InputStreamReader(pr.inputStream))
-    while (true) {
-      line = buf.readLine() ?: break
+    for (line in buf.lineSequence()) {
       //[('xkb', 'us'), ('xkb', 'ru'), ('ibus', 'bopomofo')]
       val parser = OutputParser(line)
       var first = true
@@ -106,7 +108,17 @@ private fun canDisableInputMethod(): Boolean {
   }
 
   val endMs = System.currentTimeMillis()
-  val canDisable = !layoutId2type.isEmpty() && !layoutId2type.values.contains("ibus")
+  var canDisable = !layoutId2type.isEmpty() && !layoutId2type.values.contains("ibus")
+  if (canDisable) {
+    var supportedLayouts = setOf("am", "ara", "by", "jp", "kg", "kr", "la", "mk", "np", "ru", "th", "us") // list of default gnome layouts without dead-keys
+    for (key in layoutId2type.keys) {
+      if (!supportedLayouts.contains(key)) {
+        canDisable = false
+        break
+      }
+    }
+  }
+
   val logInfo = StringBuilder("canDisableInputMethod spent ").append(endMs - startMs).append(" ms, found keyboard layouts: [")
   for ((key, value) in layoutId2type) {
     logInfo.append('(')

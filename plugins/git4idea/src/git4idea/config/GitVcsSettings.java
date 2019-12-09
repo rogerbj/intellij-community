@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.vcs.log.VcsUser;
 import git4idea.push.GitPushTagMode;
 import git4idea.reset.GitResetMode;
 import org.jetbrains.annotations.NotNull;
@@ -18,8 +19,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-
-import static git4idea.config.GitIncomingCheckStrategy.Never;
 
 /**
  * Git VCS settings
@@ -31,7 +30,7 @@ public final class GitVcsSettings extends SimplePersistentStateComponent<GitVcsO
   /**
    * The way the local changes are saved before update if user has selected auto-stash
    */
-  public enum UpdateChangesPolicy {
+  public enum SaveChangesPolicy {
     STASH,
     SHELVE,
   }
@@ -58,12 +57,12 @@ public final class GitVcsSettings extends SimplePersistentStateComponent<GitVcsO
   }
 
   @NotNull
-  public UpdateChangesPolicy updateChangesPolicy() {
-    return getState().getUpdateChangesPolicy();
+  public SaveChangesPolicy getSaveChangesPolicy() {
+    return getState().getSaveChangesPolicy();
   }
 
-  public void setUpdateChangesPolicy(UpdateChangesPolicy value) {
-    getState().setUpdateChangesPolicy(value);
+  public void setSaveChangesPolicy(SaveChangesPolicy value) {
+    getState().setSaveChangesPolicy(value);
   }
 
   /**
@@ -71,13 +70,13 @@ public final class GitVcsSettings extends SimplePersistentStateComponent<GitVcsO
    *
    * @param author an author to save
    */
-  public void saveCommitAuthor(String author) {
+  public void saveCommitAuthor(@NotNull VcsUser author) {
     List<String> previousCommitAuthors = getState().getPreviousCommitAuthors();
-    previousCommitAuthors.remove(author);
+    previousCommitAuthors.remove(author.toString());
     while (previousCommitAuthors.size() >= PREVIOUS_COMMIT_AUTHORS_LIMIT) {
       previousCommitAuthors.remove(previousCommitAuthors.size() - 1);
     }
-    previousCommitAuthors.add(0, author);
+    previousCommitAuthors.add(0, author.toString());
   }
 
   public String[] getCommitAuthors() {
@@ -92,7 +91,7 @@ public final class GitVcsSettings extends SimplePersistentStateComponent<GitVcsO
 
   private static void migrateUpdateIncomingBranchInfo(@NotNull GitVcsOptions state) {
     if (!state.isUpdateBranchesInfo()) {
-      state.setIncomingCheckStrategy(Never);
+      state.setIncomingCheckStrategy(GitIncomingCheckStrategy.Never);
       //set default value
       state.setUpdateBranchesInfo(true);
     }
@@ -309,5 +308,33 @@ public final class GitVcsSettings extends SimplePersistentStateComponent<GitVcsO
     public int hashCode() {
       return Objects.hash(super.hashCode(), targetRemoteName, targetBranchName);
     }
+  }
+
+  /**
+   * @deprecated Use {@link SaveChangesPolicy}
+   */
+  @Deprecated
+  public enum UpdateChangesPolicy {
+    STASH,
+    SHELVE;
+
+    @NotNull
+    private static UpdateChangesPolicy from(SaveChangesPolicy policy) {
+      return policy == SaveChangesPolicy.STASH ? STASH : SHELVE;
+    }
+
+    @NotNull
+    public SaveChangesPolicy convert() {
+      return this == STASH ? SaveChangesPolicy.STASH : SaveChangesPolicy.SHELVE;
+    }
+  }
+
+  /**
+   * @deprecated Use {@link #getSaveChangesPolicy()}
+   */
+  @Deprecated
+  @NotNull
+  public UpdateChangesPolicy updateChangesPolicy() {
+    return UpdateChangesPolicy.from(getSaveChangesPolicy());
   }
 }

@@ -53,6 +53,7 @@ public class EditorSearchSession implements SearchSession,
                                             SelectionListener,
                                             SearchResults.SearchResultsListener,
                                             SearchReplaceComponent.Listener {
+  private static final String FIND_TYPE = "FindInFile";
   public static final DataKey<EditorSearchSession> SESSION_KEY = DataKey.create("EditorSearchSession");
 
   private final Editor myEditor;
@@ -110,7 +111,7 @@ public class EditorSearchSession implements SearchSession,
                              new ToggleWholeWordsOnlyAction(),
                              new ToggleRegex(),
                              new DefaultCustomComponentAction(
-                               () -> RegExHelpPopup.createRegExLink("<html><body><b>?</b></body></html>", null, null)),
+                               () -> RegExHelpPopup.createRegExLink("<html><body><b>?</b></body></html>", null, null, FIND_TYPE)),
                              new StatusTextAction(),
                              new DefaultCustomComponentAction(() -> myClickToHighlightLabel))
       .addSearchFieldActions(new RestorePreviousSettingsAction())
@@ -201,7 +202,7 @@ public class EditorSearchSession implements SearchSession,
 
     myEditor.getSelectionModel().addSelectionListener(this, myDisposable);
 
-    FindUtil.triggerUsedOptionsStats("FindInEditor", findModel);
+    FindUtil.triggerUsedOptionsStats(FIND_TYPE, findModel);
   }
 
   private void saveInitialSelection() {
@@ -399,7 +400,7 @@ public class EditorSearchSession implements SearchSession,
     if (text != null && text.contains("\n")) {
       boolean replaceState = myFindModel.isReplaceState();
       AnAction action = ActionManager.getInstance().getAction(
-        replaceState ? IdeActions.ACTION_REPLACE : IdeActions.ACTION_FIND);
+        replaceState ? IdeActions.ACTION_REPLACE : IdeActions.ACTION_TOGGLE_FIND_IN_SELECTION_ONLY);
       Shortcut shortcut = ArrayUtil.getFirstElement(action.getShortcutSet().getShortcuts());
       if (shortcut != null) {
         return ApplicationBundle.message("editorsearch.in.selection.with.hint", KeymapUtil.getShortcutText(shortcut));

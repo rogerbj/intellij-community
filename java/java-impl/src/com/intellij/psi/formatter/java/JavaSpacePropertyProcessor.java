@@ -3,8 +3,6 @@ package com.intellij.psi.formatter.java;
 
 import com.intellij.formatting.Block;
 import com.intellij.formatting.Spacing;
-import com.intellij.formatting.blocks.CStyleCommentBlock;
-import com.intellij.formatting.blocks.TextLineBlock;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.lang.java.JavaParserDefinition;
@@ -48,7 +46,7 @@ import static com.intellij.openapi.util.Pair.pair;
 import static com.intellij.psi.codeStyle.CommonCodeStyleSettings.*;
 
 public class JavaSpacePropertyProcessor extends JavaElementVisitor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.formatter.java.JavaSpacePropertyProcessor");
+  private static final Logger LOG = Logger.getInstance(JavaSpacePropertyProcessor.class);
 
   private static final TokenSet REF_LIST_KEYWORDS = TokenSet.create(
     JavaTokenType.EXTENDS_KEYWORD, JavaTokenType.IMPLEMENTS_KEYWORD, JavaTokenType.THROWS_KEYWORD, JavaTokenType.WITH_KEYWORD);
@@ -682,7 +680,7 @@ public class JavaSpacePropertyProcessor extends JavaElementVisitor {
   }
 
   @Override
-  public void visitFile(PsiFile file) {
+  public void visitFile(@NotNull PsiFile file) {
     if (myType1 == JavaElementType.PACKAGE_STATEMENT) {
       int lf = mySettings.BLANK_LINES_AFTER_PACKAGE + 1;
       myResult = Spacing.createSpacing(0, 0, lf, mySettings.KEEP_LINE_BREAKS, mySettings.KEEP_BLANK_LINES_IN_DECLARATIONS);
@@ -1238,7 +1236,7 @@ public class JavaSpacePropertyProcessor extends JavaElementVisitor {
   }
 
   @Override
-  public void visitElement(PsiElement element) {
+  public void visitElement(@NotNull PsiElement element) {
     if (myRole1 == ChildRole.MODIFIER_LIST) {
       processModifierList();
     }

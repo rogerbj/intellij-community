@@ -44,6 +44,7 @@ public class JUnit4TestListener extends RunListener {
 
   private Description myCurrentTest;
   private final Map myWaitingQueue = new LinkedHashMap();
+  private static final JUnitTestTreeNodeManager NODE_NAMES_MANAGER = getTestTreeNodeManager();
 
 
   public JUnit4TestListener() {
@@ -61,16 +62,10 @@ public class JUnit4TestListener extends RunListener {
 
   public void testRunStarted(Description description) throws Exception {
     if (myRootName != null && !myRootName.startsWith("[")) {
-      int lastPointIdx = myRootName.lastIndexOf('.');
-      String name = myRootName;
-      String comment = null;
-      if (lastPointIdx >= 0) {
-        name = myRootName.substring(lastPointIdx + 1);
-        comment = myRootName.substring(0, lastPointIdx);
-      }
+      JUnitTestTreeNodeManager.TestNodePresentation rootNodePresentation = NODE_NAMES_MANAGER.getRootNodePresentation(myRootName);
 
-      myPrintStream.println("##teamcity[rootName name = \'" + escapeName(name) + 
-                            (comment != null ? ("\' comment = \'" + escapeName(comment)) : "") + "\'" +
+      myPrintStream.println("##teamcity[rootName name = \'" + escapeName(rootNodePresentation.getName()) +
+                            (rootNodePresentation.getComment() != null ? ("\' comment = \'" + escapeName(rootNodePresentation.getComment())) : "") + "\'" +
                             " location = \'java:suite://" + escapeName(myRootName) +
                             "\']");
       myRootName = getShortName(myRootName);
@@ -152,8 +147,8 @@ public class JUnit4TestListener extends RunListener {
       myStartedSuites.add(descriptionFromHistory);
     }
 
-    myPrintStream.println("##teamcity[testStarted name=\'" + escapeName(methodName.replaceFirst("/", ".")) + "\' " + 
-                          getTestMethodLocation(methodName, classFQN) + "]");
+    myPrintStream.println("##teamcity[testStarted name=\'" + escapeName(methodName.replaceFirst("/", ".")) + "\' " +
+                          NODE_NAMES_MANAGER.getTestLocation(description, classFQN, methodName) + "]");
     myCurrentTestStart = currentTime();
   }
 
@@ -476,7 +471,7 @@ public class JUnit4TestListener extends RunListener {
         if (isWarning(methodName, className) && parent != null) {
           className = JUnit4ReflectionUtil.getClassName(parent);
         }
-        myPrintStream.println("##teamcity[suiteTreeNode name=\'" + escapeName(methodName.replaceFirst("/", ".")) + "\' " + getTestMethodLocation(methodName, className) + "]");
+        myPrintStream.println("##teamcity[suiteTreeNode name=\'" + escapeName(methodName.replaceFirst("/", ".")) + "\' " + NODE_NAMES_MANAGER.getTestLocation(description, className, methodName) + "]");
       }
       else {
         myPrintStream.println("##teamcity[suiteTreeStarted name=\'" + escapeName(getShortName(className)) + "\' locationHint=\'java:suite://" + escapeName(className) + "\']");
@@ -524,10 +519,6 @@ public class JUnit4TestListener extends RunListener {
     return EMPTY_SUITE_WARNING.equals(methodName) && EMPTY_SUITE_NAME.equals(className);
   }
 
-  private static String getTestMethodLocation(String methodName, String className) {
-    return "locationHint=\'java:test://" + escapeName(className + "/" + getShortName(methodName, true)) + "\'";
-  }
-
   private static boolean isParameter(Description description) {
     String displayName = description.getDisplayName();
     return displayName.startsWith("[") && displayName.endsWith("]");
@@ -544,19 +535,27 @@ public class JUnit4TestListener extends RunListener {
   }
 
   private static String getShortName(String fqName, boolean splitBySlash) {
-    if (fqName == null) return null;
-    final int idx = fqName.indexOf("[");
-    if (idx == 0) {
-      //param name
-      return fqName;
-    }
-    String fqNameWithoutParams = idx > 0 && fqName.endsWith("]") ? fqName.substring(0, idx) : fqName;
-    int classEnd = splitBySlash ? fqNameWithoutParams.indexOf('/') : -1;
-    if (classEnd >= 0) {
-      return fqName.substring(classEnd + 1);
-    }
+    return NODE_NAMES_MANAGER.getNodeName(fqName, splitBySlash);
+  }
 
-    int dotInClassFQNIdx = fqNameWithoutParams.lastIndexOf('.');
-    return dotInClassFQNIdx > -1 ? fqName.substring(dotInClassFQNIdx + 1) : fqName;
+  private static JUnitTestTreeNodeManager getTestTreeNodeManager() {
+    String junitNodeNamesManagerClassName = System.getProperty(JUnitTestTreeNodeManager.JUNIT_TEST_TREE_NODE_MANAGER_ARGUMENT);
+
+    JUnitTestTreeNodeManager result = JUnitTestTreeNodeManager.JAVA_NODE_NAMES_MANAGER;
+    if (junitNodeNamesManagerClassName != null) {
+      try {
+        Class junitNodeNamesManagerClass = Class.forName(junitNodeNamesManagerClassName);
+        result = (JUnitTestTreeNodeManager)junitNodeNamesManagerClass.newInstance();
+      }
+      catch (ClassCastException ignored) {
+      }
+      catch (IllegalAccessException ignored) {
+      }
+      catch (InstantiationException ignored) {
+      }
+      catch (ClassNotFoundException ignored) {
+      }
+    }
+    return result;
   }
 }

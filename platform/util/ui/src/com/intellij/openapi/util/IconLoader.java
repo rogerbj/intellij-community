@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -66,6 +67,7 @@ public final class IconLoader {
   };
 
   private static final AtomicReference<IconTransform> ourTransform = new AtomicReference<>(IconTransform.getDefault());
+  private static final AtomicInteger ourTransformModCount = new AtomicInteger(0);
 
   static {
     installPathPatcher(new DeprecatedDuplicatesIconPathPatcher());
@@ -104,9 +106,9 @@ public final class IconLoader {
       next = updater.apply(prev);
     }
     while (!ourTransform.compareAndSet(prev, next));
+    ourTransformModCount.incrementAndGet();
 
     if (prev != next) {
-      ourIconsCache.clear();
       ourIcon2DisabledIcon.clear();
       //clears svg cache
       ImageDescriptor.clearCache();
@@ -561,7 +563,7 @@ public final class IconLoader {
     @Nullable private final String myOriginalPath;
     @NotNull private volatile IconUrlResolver myResolver;
     @Nullable("when not overridden") private final Boolean myDarkOverridden;
-    @NotNull private volatile IconTransform myTransform;
+    private int myTransformModCount;
     private final boolean myUseCacheOnLoad;
 
     @Nullable private final Supplier<? extends RGBImageFilter> myLocalFilterSupplier;
@@ -575,22 +577,20 @@ public final class IconLoader {
       this(new MyUrlResolver(url, null), null, useCacheOnLoad);
     }
 
-    private CachedImageIcon(@NotNull MyUrlResolver urlResolver, @Nullable String originalPath, boolean useCacheOnLoad)
-    {
-      this(originalPath, urlResolver, null, useCacheOnLoad, ourTransform.get(), null);
+    private CachedImageIcon(@NotNull MyUrlResolver urlResolver, @Nullable String originalPath, boolean useCacheOnLoad) {
+      this(originalPath, urlResolver, null, useCacheOnLoad, null);
     }
 
     private CachedImageIcon(@Nullable String originalPath,
                             @NotNull IconUrlResolver resolver,
                             @Nullable Boolean darkOverridden,
                             boolean useCacheOnLoad,
-                            @NotNull IconTransform transform,
                             @Nullable Supplier<? extends RGBImageFilter> localFilterSupplier) {
       myOriginalPath = originalPath;
       myResolver = resolver;
       myDarkOverridden = darkOverridden;
       myUseCacheOnLoad = useCacheOnLoad;
-      myTransform = transform;
+      myTransformModCount = ourTransformModCount.get();
       myLocalFilterSupplier = localFilterSupplier;
     }
 
@@ -619,12 +619,12 @@ public final class IconLoader {
         if (isLoaderDisabled()) return EMPTY_ICON;
         synchronized (myLock) {
           if (!isValid()) {
-            myTransform = ourTransform.get();
+            myTransformModCount = ourTransformModCount.get();
             myResolver.resolve();
             myRealIcon = null;
             myScaledIconsCache.clear();
             if (myOriginalPath != null) {
-              myResolver = myResolver.patch(myOriginalPath, myTransform);
+              myResolver = myResolver.patch(myOriginalPath, ourTransform.get());
             }
           }
         }
@@ -647,7 +647,7 @@ public final class IconLoader {
     }
 
     private boolean isValid() {
-      return myTransform == ourTransform.get() && myResolver.isResolved();
+      return ourTransformModCount.get() == myTransformModCount && myResolver.isResolved();
     }
 
     @Override
@@ -676,7 +676,7 @@ public final class IconLoader {
     @NotNull
     @Override
     public Icon getDarkIcon(boolean isDark) {
-      return new CachedImageIcon(myOriginalPath, myResolver, isDark, myUseCacheOnLoad, myTransform, myLocalFilterSupplier);
+      return new CachedImageIcon(myOriginalPath, myResolver, isDark, myUseCacheOnLoad, myLocalFilterSupplier);
     }
 
     @NotNull
@@ -698,21 +698,21 @@ public final class IconLoader {
     @NotNull
     @Override
     public CachedImageIcon copy() {
-      return new CachedImageIcon(myOriginalPath, myResolver, myDarkOverridden, myUseCacheOnLoad, myTransform, myLocalFilterSupplier);
+      return new CachedImageIcon(myOriginalPath, myResolver, myDarkOverridden, myUseCacheOnLoad, myLocalFilterSupplier);
     }
 
     @NotNull
     private Icon createWithFilter(@NotNull Supplier<? extends RGBImageFilter> filterSupplier) {
-      return new CachedImageIcon(myOriginalPath, myResolver, myDarkOverridden, myUseCacheOnLoad, myTransform, filterSupplier);
+      return new CachedImageIcon(myOriginalPath, myResolver, myDarkOverridden, myUseCacheOnLoad, filterSupplier);
     }
 
     private boolean isDark() {
-      return myDarkOverridden == null ? myTransform.isDark() : myDarkOverridden;
+      return myDarkOverridden == null ? ourTransform.get().isDark() : myDarkOverridden;
     }
 
     @Nullable
     private ImageFilter[] getFilters() {
-      ImageFilter global = myTransform.getFilter();
+      ImageFilter global = ourTransform.get().getFilter();
       ImageFilter local = myLocalFilterSupplier != null ? myLocalFilterSupplier.get() : null;
       if (global != null && local != null) {
         return new ImageFilter[] {global, local};
@@ -1041,7 +1041,7 @@ public final class IconLoader {
   public abstract static class LazyIcon extends ScaleContextSupport implements CopyableIcon, RetrievableIcon {
     private boolean myWasComputed;
     private volatile Icon myIcon;
-    private IconTransform myTransform = ourTransform.get();
+    private int myTransformModCount = ourTransformModCount.get();
 
     @Override
     public void paintIcon(Component c, Graphics g, int x, int y) {
@@ -1066,10 +1066,10 @@ public final class IconLoader {
 
     @NotNull
     final synchronized Icon getOrComputeIcon() {
-      IconTransform currentTransform = ourTransform.get();
       Icon icon = myIcon;
-      if (!myWasComputed || myTransform != currentTransform || icon == null) {
-        myTransform = currentTransform;
+      int newTransformModCount = ourTransformModCount.get();
+      if (!myWasComputed || myTransformModCount != newTransformModCount || icon == null) {
+        myTransformModCount = newTransformModCount;
         myWasComputed = true;
         myIcon = icon = compute();
       }
@@ -1190,7 +1190,7 @@ public final class IconLoader {
           newPath = patcher.patchPath(path, null);
         }
         if (newPath != null) {
-          LOG.info("replace '" + path + "' with '" + newPath + "'");
+          LOG.debug("replace '" + path + "' with '" + newPath + "'");
           ClassLoader contextClassLoader = patcher.getContextClassLoader(path, classLoader);
           if (contextClassLoader == null) {
             //noinspection deprecation

@@ -23,7 +23,6 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
@@ -105,7 +104,7 @@ import static com.intellij.ui.tree.TreePathUtil.toTreePathArray;
   @Storage(value = StoragePathMacros.WORKSPACE_FILE, deprecated = true)
 })
 public class ProjectViewImpl extends ProjectView implements PersistentStateComponent<Element>, Disposable, QuickActionProvider, BusyObject {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.projectView.impl.ProjectViewImpl");
+  private static final Logger LOG = Logger.getInstance(ProjectViewImpl.class);
   private static final Key<String> ID_KEY = Key.create("pane-id");
   private static final Key<String> SUB_ID_KEY = Key.create("pane-sub-id");
   private final CopyPasteDelegator myCopyPasteDelegator;
@@ -1044,7 +1043,7 @@ public class ProjectViewImpl extends ProjectView implements PersistentStateCompo
 
     pane.addToolbarActions(myActionGroup);
 
-    List<AnAction> titleActions = ContainerUtil.newSmartList();
+    List<AnAction> titleActions = new SmartList<>();
     createTitleActions(titleActions);
     if (!titleActions.isEmpty()) {
       ToolWindowEx window = (ToolWindowEx)ToolWindowManager.getInstance(myProject).getToolWindow(ToolWindowId.PROJECT_VIEW);
@@ -1077,7 +1076,6 @@ public class ProjectViewImpl extends ProjectView implements PersistentStateCompo
       }
     }, getComponent());
     collapseAllAction.getTemplatePresentation().setIcon(AllIcons.General.CollapseAll);
-    collapseAllAction.getTemplatePresentation().setHoveredIcon(AllIcons.General.CollapseAllHover);
     titleActions.add(collapseAllAction);
   }
 
@@ -1303,7 +1301,7 @@ public class ProjectViewImpl extends ProjectView implements PersistentStateCompo
 
       LocalHistoryAction a = LocalHistory.getInstance().startAction(IdeBundle.message("progress.deleting"));
       try {
-        TransactionGuard.getInstance().submitTransactionAndWait(() -> DeleteHandler.deletePsiElement(elements, myProject));
+        DeleteHandler.deletePsiElement(elements, myProject);
       }
       finally {
         a.finish();
@@ -2078,7 +2076,7 @@ public class ProjectViewImpl extends ProjectView implements PersistentStateCompo
             runnable.run();
           }
         })
-        .coalesceBy(ProjectViewImpl.this)
+        .coalesceBy(EditorSelectInContext.class, ProjectViewImpl.this)
         .expireWhen(editor::isDisposed)
         .submit(AppExecutorUtil.getAppExecutorService());
     }

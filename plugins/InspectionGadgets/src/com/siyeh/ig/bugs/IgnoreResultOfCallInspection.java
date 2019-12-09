@@ -63,7 +63,12 @@ public class IgnoreResultOfCallInspection extends BaseInspection {
       CallMatcher.staticCall(CommonClassNames.JAVA_LANG_INTEGER, "parseInt", "valueOf"),
       CallMatcher.staticCall(CommonClassNames.JAVA_LANG_LONG, "parseLong", "valueOf"),
       CallMatcher.staticCall(CommonClassNames.JAVA_LANG_DOUBLE, "parseDouble", "valueOf"),
-      CallMatcher.staticCall(CommonClassNames.JAVA_LANG_FLOAT, "parseFloat", "valueOf")), "java.lang.NumberFormatException");
+      CallMatcher.staticCall(CommonClassNames.JAVA_LANG_FLOAT, "parseFloat", "valueOf")), "java.lang.NumberFormatException")
+    .register(CallMatcher.instanceCall(CommonClassNames.JAVA_LANG_CLASS, 
+                                       "getMethod", "getDeclaredMethod", "getConstructor", "getDeclaredConstructor"), 
+              "java.lang.NoSuchMethodException")
+    .register(CallMatcher.instanceCall(CommonClassNames.JAVA_LANG_CLASS, 
+                                       "getField", "getDeclaredField"), "java.lang.NoSuchFieldException");
   private static final Set<String> IGNORE_ANNOTATIONS = ContainerUtil
     .immutableSet("org.assertj.core.util.CanIgnoreReturnValue", "com.google.errorprone.annotations.CanIgnoreReturnValue");
   protected final MethodMatcher myMethodMatcher;
@@ -196,12 +201,18 @@ public class IgnoreResultOfCallInspection extends BaseInspection {
 
     private boolean shouldReport(PsiExpression call, PsiMethod method, @Nullable PsiElement errorContainer) {
       final PsiType returnType = method.getReturnType();
-      if (PsiType.VOID.equals(returnType)) return false;
+      if (PsiType.VOID.equals(returnType) || TypeUtils.typeEquals(CommonClassNames.JAVA_LANG_VOID, returnType)) return false;
       final PsiClass aClass = method.getContainingClass();
       if (aClass == null) return false;
       if (errorContainer != null && PsiUtilCore.hasErrorElementChild(errorContainer)) return false;
       if (PropertyUtil.isSimpleGetter(method)) {
         return !isIgnored(method, null);
+      }
+      if (method instanceof PsiCompiledElement) {
+        PsiMethod sourceMethod = ObjectUtils.tryCast(method.getNavigationElement(), PsiMethod.class);
+        if (sourceMethod != null && PropertyUtil.isSimpleGetter(sourceMethod)) {
+          return !isIgnored(method, null);
+        }
       }
       if (m_reportAllNonLibraryCalls && !LibraryUtil.classIsInLibrary(aClass)) {
         return !isIgnored(method, null);
